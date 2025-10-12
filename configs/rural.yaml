@@ -1,0 +1,45 @@
+# Configuration for rural/sparse environments
+# Examples: National parks, countryside, small towns, coastal areas
+
+name: "Rural"
+description: "Low POI density, long distances, minimal clustering"
+
+# H3 Hexagon Resolution
+# Resolution 7: ~1.22km edge, ~5.16 km² area (regional scale)
+h3:
+  primary_resolution: 7
+  fallback_resolution: 6  # Very wide coverage
+
+# HDBSCAN Clustering Parameters
+clustering:
+  min_cluster_size: 5   # Even smaller clusters acceptable
+  min_samples: 1        # Very low density threshold
+  cluster_selection_epsilon: 0.0
+  max_clusters: 5       # Few distinct areas
+  min_clusters: 1       # Even single cluster acceptable (fallback to scoring)
+
+# Search Parameters
+search:
+  default_radius_m: 20000    # 20km search radius (wide net)
+  max_candidates: 80         # Fewer total POIs available
+  
+# Routing Defaults
+routing:
+  preferred_mode: "DRIVE"              # Car essential in rural areas
+  routing_preference: "TRAFFIC_UNAWARE"  # Less traffic concern
+  min_eta_seconds: 600                # 10 min minimum (long distances)
+  service_time_minutes: 45            # Longer stops (destination-focused)
+
+# Scoring Weights
+scoring:
+  w_rating: 0.40       # Quality paramount (very limited options)
+  w_diversity: 0.15    # Diversity less feasible
+  w_eta: 0.30          # Travel time critical (long drives)
+  w_open: 0.10         # Limited hours
+  w_crowd: 0.05        # Crowds rarely an issue
+
+# Time Windows
+time:
+  default_start_hour: 9     # 9 AM start
+  default_end_hour: 17      # 5 PM end (early closing common)
+  max_stops_per_day: 4      # Few stops (long distances)

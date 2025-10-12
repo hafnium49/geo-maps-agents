@@ -1,0 +1,45 @@
+# Configuration for dense urban environments
+# Examples: Tokyo, New York, London, Paris, Hong Kong
+
+name: "Dense City"
+description: "High POI density, excellent transit, fine-grained spatial analysis"
+
+# H3 Hexagon Resolution
+# Resolution 9: ~175m edge, ~0.1 km² area (city block scale)
+h3:
+  primary_resolution: 9
+  fallback_resolution: 8  # Wider corridors if res 9 too sparse
+
+# HDBSCAN Clustering Parameters
+clustering:
+  min_cluster_size: 12  # Require at least 12 POIs per neighborhood cluster
+  min_samples: 3        # Core points need 3+ neighbors
+  cluster_selection_epsilon: 0.0  # No distance threshold override
+  max_clusters: 10      # Alert if more than 10 clusters found (over-segmentation)
+  min_clusters: 2       # Alert if fewer than 2 clusters (under-segmentation)
+
+# Search Parameters
+search:
+  default_radius_m: 4000     # 4km search radius
+  max_candidates: 120        # Fetch up to 120 places
+  
+# Routing Defaults
+routing:
+  preferred_mode: "TRANSIT"          # Dense cities have robust public transport
+  routing_preference: "TRAFFIC_AWARE"  # Use traffic data
+  min_eta_seconds: 180              # Minimum 3 min between stops
+  service_time_minutes: 35          # Average dwell time per stop
+
+# Scoring Weights (can be overridden by A/B variants)
+scoring:
+  w_rating: 0.30       # High-quality experiences
+  w_diversity: 0.25    # Variety within neighborhoods
+  w_eta: 0.20          # Travel time (less critical with transit)
+  w_open: 0.15         # Availability
+  w_crowd: 0.10        # Prefer less touristy spots
+
+# Time Windows
+time:
+  default_start_hour: 10    # 10 AM default start
+  default_end_hour: 20      # 8 PM default end
+  max_stops_per_day: 8      # Maximum stops in one day

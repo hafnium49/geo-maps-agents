@@ -4,6 +4,10 @@ import os, json, math, time, random, asyncio
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 import httpx
 import numpy as np
 import pandas as pd
@@ -12,6 +16,16 @@ import hdbscan
 from cachetools import TTLCache
 
 from pydantic import BaseModel, Field
+
+# Import centralized FieldMasks and config loader
+from src.tools.fields import (
+    get_places_search_mask,
+    get_places_details_mask,
+    get_routes_matrix_mask,
+    PLACES_TEXT_SEARCH_FIELDS,
+    PLACES_DETAILS_FIELDS,
+)
+from src.tools.config_loader import get_config
 
 # OpenAI Agents SDK
 from agents import (
@@ -29,7 +43,10 @@ ROUTES_MATRIX_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRout
 
 GOOGLE_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 if not GOOGLE_KEY:
-    raise RuntimeError("Missing GOOGLE_MAPS_API_KEY")
+    raise RuntimeError(
+        "Missing GOOGLE_MAPS_API_KEY. "
+        "Please copy .env.sample to .env and add your API key."
+    )
 
 DEFAULT_H3_RES = 9  # city-block scale
 DEFAULT_CLUSTER_MIN_SIZE = 12
@@ -133,6 +150,7 @@ class ItineraryOutput(BaseModel):
 # -----------------------------
 
 def _fieldmask(header_fields: List[str]) -> Dict[str, str]:
+    """Legacy helper - prefer using get_fieldmask_header from src.tools.fields"""
     return {"X-Goog-FieldMask": ",".join(header_fields)}
 
 def _backoff_sleep(attempt: int):
@@ -189,13 +207,9 @@ async def places_text_search(
 ) -> List[PlaceLite]:
     """
     Cost-aware discovery step: Text Search (New) with FieldMask.
+    Uses centralized PLACES_TEXT_SEARCH_FIELDS from src.tools.fields.
     """
-    fm = [
-        "places.id","places.displayName","places.location",
-        "places.primaryType","places.types","places.rating","places.userRatingCount",
-        "places.priceLevel","places.currentOpeningHours.openNow","places.googleMapsUri"
-    ]
-    headers = {"X-Goog-Api-Key": GOOGLE_KEY, **_fieldmask(fm)}
+    headers = {"X-Goog-Api-Key": GOOGLE_KEY, **get_places_search_mask()}
     body = {
         "textQuery": text_query,
         "languageCode": language,
@@ -230,13 +244,11 @@ async def places_text_search(
 @function_tool
 async def place_details(place_id: str, language: str="en") -> PlaceLite:
     """
-    Enrichment step: Details (New) with FieldMask. (Keeps costs low & respects the subset-of-reviews contract.)
+    Enrichment step: Details (New) with FieldMask.
+    Uses centralized PLACES_DETAILS_FIELDS from src.tools.fields.
+    Keeps costs low & respects the subset-of-reviews contract.
     """
-    fm = [
-        "id","displayName","location","primaryType","types","rating","userRatingCount",
-        "priceLevel","currentOpeningHours.openNow","googleMapsUri","businessStatus"
-    ]
-    headers = {"X-Goog-Api-Key": GOOGLE_KEY, **_fieldmask(fm)}
+    headers = {"X-Goog-Api-Key": GOOGLE_KEY, **get_places_details_mask()}
     url = f"{PLACES_BASE}/places/{place_id}"
     data = await _http_get_json(url, headers)
     loc = data.get("location", {})
@@ -268,7 +280,9 @@ async def route_matrix(
     language: str = "en"
 ) -> List[Dict[str, Any]]:
     """
-    Traffic-aware matrix with FieldMask and batching. Returns list of matrix elements with originIndex/destinationIndex.
+    Traffic-aware matrix with FieldMask and batching.
+    Uses centralized ROUTES_MATRIX_FIELDS from src.tools.fields.
+    Returns list of matrix elements with originIndex/destinationIndex.
     """
     elements = len(origins) * len(destinations)
     hard_limit = _matrix_limit(mode, routing_preference)
@@ -284,7 +298,7 @@ async def route_matrix(
 
     headers = {
         "X-Goog-Api-Key": GOOGLE_KEY,
-        **_fieldmask(["originIndex","destinationIndex","duration","distanceMeters","status","condition"])
+        **get_routes_matrix_mask()
     }
     body = {
         "origins": [{"waypoint": {"location": {"latLng": {"latitude": o.lat, "longitude": o.lng}}}} for o in origins],

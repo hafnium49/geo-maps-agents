@@ -1,0 +1,45 @@
+# Configuration for suburban environments
+# Examples: Silicon Valley suburbs, outer London boroughs, Tokyo suburbs
+
+name: "Suburban"
+description: "Medium POI density, car-dependent, wider spatial grouping"
+
+# H3 Hexagon Resolution
+# Resolution 8: ~461m edge, ~0.74 km² area (neighborhood scale)
+h3:
+  primary_resolution: 8
+  fallback_resolution: 7  # Even wider if needed
+
+# HDBSCAN Clustering Parameters
+clustering:
+  min_cluster_size: 8   # Fewer POIs per cluster (spread out)
+  min_samples: 2        # Lower density threshold
+  cluster_selection_epsilon: 0.0
+  max_clusters: 8       # Suburban areas have fewer distinct zones
+  min_clusters: 2
+
+# Search Parameters
+search:
+  default_radius_m: 8000     # 8km search radius (car-friendly)
+  max_candidates: 100        # Slightly fewer total options
+  
+# Routing Defaults
+routing:
+  preferred_mode: "DRIVE"              # Cars are primary transport
+  routing_preference: "TRAFFIC_AWARE"  # Traffic matters for driving
+  min_eta_seconds: 300                # 5 min minimum (longer distances)
+  service_time_minutes: 40            # Slightly longer stops (parking time)
+
+# Scoring Weights
+scoring:
+  w_rating: 0.35       # Quality more important (fewer options)
+  w_diversity: 0.20    # Less emphasis on variety
+  w_eta: 0.25          # Travel time matters more (driving)
+  w_open: 0.12         # Availability
+  w_crowd: 0.08        # Crowds less of an issue
+
+# Time Windows
+time:
+  default_start_hour: 9     # 9 AM start (later opening hours)
+  default_end_hour: 19      # 7 PM end (earlier closing)
+  max_stops_per_day: 6      # Fewer stops (longer travel)

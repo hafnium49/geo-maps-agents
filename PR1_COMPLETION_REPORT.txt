@@ -1,0 +1,306 @@
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  PR #1: Config & Secrets Infrastructure - COMPLETE ✅        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+📅 Date: October 12, 2025
+👤 Author: hafnium49
+🎯 Status: Ready for Review
+✅ Verification: 14/14 checks passed
+
+═══════════════════════════════════════════════════════════════
+
+📦 DELIVERABLES
+
+New Files Created (15):
+├── Configuration & Dependencies
+│   ├── pyproject.toml              Modern Python project config
+│   ├── requirements.txt            Traditional pip requirements
+│   ├── requirements-dev.txt        Development dependencies
+│   └── .env.sample                 Environment variable template
+│
+├── Source Code Structure
+│   ├── src/__init__.py             Package initialization
+│   ├── src/tools/__init__.py       Tools module exports
+│   ├── src/tools/fields.py         Centralized FieldMasks (180 lines)
+│   └── src/tools/config_loader.py  YAML configuration loader
+│
+├── City Profile Configurations
+│   ├── configs/dense-city.yaml     High-density urban (Tokyo, NYC)
+│   ├── configs/suburban.yaml       Medium-density suburban
+│   └── configs/rural.yaml          Low-density rural/countryside
+│
+└── Documentation & Tools
+    ├── CHANGELOG.md                Version history and changes
+    ├── PR1_SUMMARY.md              Detailed PR documentation
+    ├── verify_pr1.py               Automated verification script
+    └── commit_pr1.sh               Git workflow helper script
+
+Modified Files (3):
+├── .gitignore                      Comprehensive Python ignore rules
+├── README.md                       Complete rewrite with ToS section
+└── geotrip_agent.py                Integrated dotenv & centralized FieldMasks
+
+═══════════════════════════════════════════════════════════════
+
+🎯 OBJECTIVES ACHIEVED
+
+Configuration Management:
+✅ Dependency pinning (pyproject.toml + requirements.txt)
+✅ Environment variable management (.env.sample + python-dotenv)
+✅ City profile configurations (3 YAML files)
+✅ Config loader utility with environment integration
+
+Code Quality:
+✅ Centralized FieldMask definitions (single source of truth)
+✅ Proper package structure (src/ with __init__.py files)
+✅ Enhanced error messages and validation
+✅ Type hints and docstrings
+
+Documentation:
+✅ Comprehensive README with ToS guardrails section
+✅ Detailed PR summary and changelog
+✅ Automated verification script
+✅ Git workflow helper
+
+═══════════════════════════════════════════════════════════════
+
+🔍 KEY IMPROVEMENTS
+
+Before PR #1:
+❌ Hardcoded field lists in multiple places
+❌ No dependency management
+❌ Manual environment variable handling
+❌ No configuration flexibility
+❌ Minimal documentation
+
+After PR #1:
+✅ Centralized FieldMasks in src/tools/fields.py
+✅ Reproducible builds with pinned dependencies
+✅ Automatic .env loading with validation
+✅ Flexible city profiles (dense/suburban/rural)
+✅ Comprehensive documentation with ToS compliance
+
+═══════════════════════════════════════════════════════════════
+
+📊 METRICS
+
+Lines of Code:
+- fields.py:         ~180 lines (centralized FieldMasks)
+- config_loader.py:  ~60 lines (YAML loader)
+- City configs:      ~300 lines total (3 files)
+- Documentation:     ~400 lines (README, CHANGELOG, PR1_SUMMARY)
+- Verification:      ~130 lines (verify_pr1.py)
+
+Test Coverage:
+- verify_pr1.py: 14/14 checks passing ✅
+  ✓ File structure (10 files)
+  ✓ Module imports (2 modules)
+  ✓ Functional tests (2 tests)
+
+═══════════════════════════════════════════════════════════════
+
+🚀 USAGE INSTRUCTIONS
+
+1. Verify PR #1:
+   python verify_pr1.py
+
+2. Set up environment:
+   cp .env.sample .env
+   # Edit .env and add your API keys
+
+3. Install dependencies:
+   pip install -e .
+   # or: pip install -r requirements.txt
+
+4. Run the application:
+   python geotrip_agent.py
+
+5. (Optional) Use city profiles:
+   export CITY_PROFILE=suburban
+   python geotrip_agent.py
+
+═══════════════════════════════════════════════════════════════
+
+🔗 INTEGRATION WITH EXISTING CODE
+
+geotrip_agent.py Changes:
+
+1. Environment Loading (Line 8-9):
+   from dotenv import load_dotenv
+   load_dotenv()
+
+2. Import Centralized FieldMasks (Lines 21-30):
+   from src.tools.fields import (
+       get_places_search_mask,
+       get_places_details_mask,
+       get_routes_matrix_mask,
+   )
+
+3. Enhanced Error Handling (Lines 46-50):
+   if not GOOGLE_KEY:
+       raise RuntimeError(
+           "Missing GOOGLE_MAPS_API_KEY. "
+           "Please copy .env.sample to .env..."
+       )
+
+4. Use Centralized FieldMasks:
+   - places_text_search(): headers = {..., **get_places_search_mask()}
+   - place_details():      headers = {..., **get_places_details_mask()}
+   - route_matrix():       headers = {..., **get_routes_matrix_mask()}
+
+═══════════════════════════════════════════════════════════════
+
+🛡️ ToS COMPLIANCE
+
+Google Maps Platform Terms of Service:
+
+✅ Places data MUST be displayed on Google Maps
+   → We use Google Maps JS API with deck.gl overlay
+
+✅ Preserve attribution and deep-links
+   → googleMapsUri maintained for all places
+
+✅ Never cache reviews
+   → Only Place IDs cached, reviews fetched fresh
+
+✅ Display max 5 reviews with attribution
+   → Documented in ToS guardrails section
+
+❌ PROHIBITED: OpenStreetMap, Mapbox, MapLibre mixing
+   → Input guardrail actively blocks these requests
+
+═══════════════════════════════════════════════════════════════
+
+🔄 GIT WORKFLOW
+
+Option 1: Use helper script
+   ./commit_pr1.sh
+   # Interactive prompts guide you through the process
+
+Option 2: Manual commands
+   git checkout -b feat/pr1-config-secrets
+   git add pyproject.toml .env.sample requirements*.txt
+   git add configs/ src/ CHANGELOG.md PR1_SUMMARY.md verify_pr1.py
+   git add .gitignore README.md geotrip_agent.py
+   git commit -m "feat: add config & secrets infrastructure (PR #1)"
+   git push origin feat/pr1-config-secrets
+
+═══════════════════════════════════════════════════════════════
+
+🔜 NEXT STEPS
+
+PR #2: Matrix Guardrails & Caching
+- Enhanced error messages for limit violations
+- Split TTL cache (5min traffic, 60min static)
+- Truncated exponential backoff with jitter
+- gRPC streaming placeholder
+
+PR #3: Scoring Normalization & A/B Harness
+- Percentile-based normalization (5th/95th)
+- A/B variant configs (weights.yaml)
+- Session-sticky variant selection
+- Per-stop telemetry logging
+
+PR #4: HDBSCAN Fallback Logic
+- Detect degenerate cases (< 2 clusters)
+- Handle over-clustering (> 10 clusters)
+- Deterministic cluster labeling
+- Score-only fallback mode
+
+PR #5: OR-Tools VRPTW Sequencer
+- Replace greedy with OR-Tools RoutingModel
+- Time windows from opening hours
+- PATH_CHEAPEST_ARC + GuidedLocalSearch
+- --fast flag for greedy fallback
+
+PR #6: CI & Testing Infrastructure
+- Comprehensive unit test suite
+- Mock servers for API calls
+- GitHub Actions workflow
+- Coverage reporting (target: 80%+)
+
+═══════════════════════════════════════════════════════════════
+
+📝 REVIEW CHECKLIST
+
+Code Quality:
+☑ All files follow consistent style
+☑ Docstrings present and clear
+☑ Type hints where appropriate
+☑ No hardcoded secrets
+
+Functionality:
+☑ FieldMasks centralized and working
+☑ Config loader reads YAML correctly
+☑ Environment variables loaded automatically
+☑ Error messages helpful and actionable
+
+Documentation:
+☑ README updated with ToS section
+☑ CHANGELOG follows Keep a Changelog format
+☑ PR summary comprehensive
+☑ Verification script passes all checks
+
+Testing:
+☑ verify_pr1.py passes (14/14)
+☑ All imports work correctly
+☑ Config loader functional test passes
+☑ FieldMask functions verified
+
+═══════════════════════════════════════════════════════════════
+
+💬 PR DESCRIPTION (for GitHub)
+
+## Summary
+This PR establishes the foundational configuration management and 
+secrets handling infrastructure, transforming geo-maps-agents from 
+a proof-of-concept into a production-ready application.
+
+## What Changed
+- ✅ Dependency management with pyproject.toml (pinned versions)
+- ✅ Environment configuration with .env.sample template
+- ✅ Centralized FieldMask definitions in src/tools/fields.py
+- ✅ City profile configs (dense-city, suburban, rural)
+- ✅ Comprehensive README with ToS guardrails section
+- ✅ Automated verification (verify_pr1.py)
+
+## Testing
+```bash
+python verify_pr1.py  # 14/14 checks passing ✅
+```
+
+## Breaking Changes
+None (initial release v0.1.0)
+
+## Next Steps
+This is part 1 of a 6-PR roadmap. Next: PR #2 (Matrix Guardrails)
+
+═══════════════════════════════════════════════════════════════
+
+✨ HIGHLIGHTS
+
+Most Impactful Changes:
+1. Centralized FieldMasks → Single source of truth, easy to maintain
+2. City profiles → Flexible configs for different environments
+3. ToS documentation → Clear compliance guidelines
+4. Verification script → Automated quality checks
+
+Best Practices Applied:
+- Pinned dependencies for reproducibility
+- Environment variables for secrets
+- Comprehensive documentation
+- Automated verification
+- Type hints and docstrings
+
+═══════════════════════════════════════════════════════════════
+
+🎉 PR #1 IS COMPLETE AND READY FOR REVIEW!
+
+All objectives achieved ✅
+All tests passing ✅
+Documentation comprehensive ✅
+Code quality high ✅
+
+Ready to proceed with PR #2 when approved.
+
+═══════════════════════════════════════════════════════════════

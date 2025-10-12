@@ -43,6 +43,9 @@ from src.routing import (
     TravelMode,
     RoutingPreference,
     Location as RouteLocation,
+    solve_vrptw_with_fallback,
+    VRPTWConfig,
+    greedy_sequence,
 )
 
 # Import spatial clustering module
@@ -536,35 +539,109 @@ def _score_places(places: List[PlaceLite],
 # OR-Tools: single-day TSP-TW
 # -----------------------------
 
-def _sequence_single_day(stops: List[ScoredPlace], anchor: Location, window: TimeWindow) -> ItineraryDay:
+def _sequence_single_day(
+    stops: List[ScoredPlace],
+    anchor: Location,
+    window: TimeWindow,
+    use_ortools: bool = True,
+    service_time_min: int = 35
+) -> ItineraryDay:
     """
-    Minimal TSP-TW: we greedily sort by score/ETA (replace with OR-Tools VRPTW for exact).
-    In production, replace with a call to OR-Tools RoutingModel + time windows.
+    Sequence stops optimally using OR-Tools VRPTW or greedy fallback.
+    
+    Args:
+        stops: List of scored places to visit
+        anchor: Starting point
+        window: Time window for the tour
+        use_ortools: If True, use OR-Tools (else greedy). Set False for --fast mode.
+        service_time_min: Minutes to spend at each stop
+        
+    Returns:
+        ItineraryDay with optimized stop sequence
     """
-    # Sort high score first, then tiebreak by eta
-    ordered = sorted(stops, key=lambda s: (-s.score, s.eta_sec))
-    start = datetime.fromisoformat(window.start_iso)
-    end = datetime.fromisoformat(window.end_iso)
-
-    slots: List[DayStop] = []
-    cur = start
-    for s in ordered:
-        travel = max(180, s.eta_sec)  # min 3 min
-        arrive = cur + timedelta(seconds=travel)
-        dwell = timedelta(minutes=35)  # heuristic service time
-        depart = arrive + dwell
-        if depart > end:
-            break
-        slots.append(DayStop(
-            place=s.place,
-            arrival_iso=arrive.isoformat(timespec="seconds"),
-            depart_iso=depart.isoformat(timespec="seconds"),
-            eta_sec=s.eta_sec,
-            reason=f"Score={s.score:.2f}; open_now={s.place.is_open_now}; diversity_gain={s.diversity_gain:.2f}"
+    if len(stops) == 0:
+        start = datetime.fromisoformat(window.start_iso)
+        return ItineraryDay(date_iso=start.date().isoformat(), stops=[])
+    
+    # Convert stops to DataFrame for solver
+    candidates = pd.DataFrame([
+        {
+            'id': s.place.id,
+            'name': s.place.name,
+            'lat': s.place.lat,
+            'lng': s.place.lng,
+            'score': s.score,
+            'eta': s.eta_sec,
+            'open_now': s.place.is_open_now,
+            'diversity_gain': s.diversity_gain,
+            'cluster_label': s.cluster_label,
+        }
+        for s in stops
+    ])
+    
+    start_time = datetime.fromisoformat(window.start_iso)
+    end_time = datetime.fromisoformat(window.end_iso)
+    
+    # Configure solver
+    config = VRPTWConfig(
+        service_time_min=service_time_min,
+        time_limit_sec=10,
+        use_guided_local_search=True,
+        verbose=False
+    )
+    
+    # Solve with OR-Tools (with automatic greedy fallback)
+    result = solve_vrptw_with_fallback(
+        candidates=candidates,
+        anchor_lat=anchor.lat,
+        anchor_lng=anchor.lng,
+        start_time=start_time,
+        end_time=end_time,
+        config=config,
+        distance_matrix_full=None,  # Could compute full matrix for better accuracy
+        force_greedy=not use_ortools
+    )
+    
+    # Log results
+    if result.solution_found:
+        print(f"\n🗺️ Route Sequencing: {result.sequence_method}")
+        print(f"  Stops: {result.num_stops}/{result.num_candidates} candidates")
+        print(f"  Travel time: {result.total_travel_time_sec // 60} min")
+        print(f"  Service time: {result.total_service_time_sec // 60} min")
+        print(f"  Total duration: {result.total_duration_sec // 60} min")
+        print(f"  Solver time: {result.solver_time_sec:.3f}s")
+        if result.fallback_reason:
+            print(f"  Note: {result.fallback_reason}")
+    else:
+        print(f"\n⚠️ Sequencing failed: {result.fallback_reason}")
+    
+    # Convert result to DayStop format
+    day_stops = []
+    for stop_dict in result.stops:
+        # Find original ScoredPlace for additional info
+        original_stop = next((s for s in stops if s.place.id == stop_dict['place_id']), None)
+        
+        day_stops.append(DayStop(
+            place=PlaceLite(
+                id=stop_dict['place_id'],
+                name=stop_dict['place_name'],
+                primary_type=original_stop.place.primary_type if original_stop else None,
+                types=original_stop.place.types if original_stop else [],
+                lat=stop_dict['lat'],
+                lng=stop_dict['lng'],
+                rating=original_stop.place.rating if original_stop else None,
+                user_ratings_total=original_stop.place.user_ratings_total if original_stop else None,
+                price_level=original_stop.place.price_level if original_stop else None,
+                is_open_now=stop_dict.get('open_now', None),
+                maps_url=original_stop.place.maps_url if original_stop else None,
+            ),
+            arrival_iso=stop_dict['arrival_time'].isoformat(timespec="seconds"),
+            depart_iso=stop_dict['departure_time'].isoformat(timespec="seconds"),
+            eta_sec=stop_dict.get('eta', 0),
+            reason=stop_dict['reason']
         ))
-        cur = depart
-
-    return ItineraryDay(date_iso=start.date().isoformat(), stops=slots)
+    
+    return ItineraryDay(date_iso=start_time.date().isoformat(), stops=day_stops)
 
 # -----------------------------
 # deck.gl HTML (Google Maps JS)

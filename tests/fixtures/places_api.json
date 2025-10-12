@@ -1,0 +1,257 @@
+{
+  "nearbySearch": {
+    "restaurants": {
+      "status": "OK",
+      "results": [
+        {
+          "place_id": "ChIJrest_001",
+          "name": "Restaurant A",
+          "geometry": {
+            "location": {
+              "lat": 35.6812,
+              "lng": 139.7671
+            }
+          },
+          "rating": 4.5,
+          "user_ratings_total": 1500,
+          "types": ["restaurant", "food", "point_of_interest"],
+          "price_level": 2,
+          "opening_hours": {
+            "open_now": true,
+            "periods": [
+              {
+                "open": {"day": 0, "time": "1100"},
+                "close": {"day": 0, "time": "2200"}
+              }
+            ]
+          },
+          "business_status": "OPERATIONAL"
+        },
+        {
+          "place_id": "ChIJrest_002",
+          "name": "Cafe B",
+          "geometry": {
+            "location": {
+              "lat": 35.6895,
+              "lng": 139.6917
+            }
+          },
+          "rating": 4.3,
+          "user_ratings_total": 850,
+          "types": ["cafe", "restaurant", "food"],
+          "price_level": 1,
+          "opening_hours": {
+            "open_now": true
+          },
+          "business_status": "OPERATIONAL"
+        },
+        {
+          "place_id": "ChIJrest_003",
+          "name": "Sushi Bar C",
+          "geometry": {
+            "location": {
+              "lat": 35.6764,
+              "lng": 139.6993
+            }
+          },
+          "rating": 4.7,
+          "user_ratings_total": 2100,
+          "types": ["restaurant", "food", "point_of_interest"],
+          "price_level": 3,
+          "opening_hours": {
+            "open_now": false
+          },
+          "business_status": "OPERATIONAL"
+        }
+      ]
+    },
+    "museums": {
+      "status": "OK",
+      "results": [
+        {
+          "place_id": "ChIJmuseum_001",
+          "name": "Museum C",
+          "geometry": {
+            "location": {
+              "lat": 35.7148,
+              "lng": 139.7967
+            }
+          },
+          "rating": 4.6,
+          "user_ratings_total": 3200,
+          "types": ["museum", "tourist_attraction", "point_of_interest"],
+          "opening_hours": {
+            "open_now": true,
+            "periods": [
+              {
+                "open": {"day": 0, "time": "0900"},
+                "close": {"day": 0, "time": "1700"}
+              }
+            ]
+          },
+          "business_status": "OPERATIONAL"
+        },
+        {
+          "place_id": "ChIJmuseum_002",
+          "name": "Art Gallery D",
+          "geometry": {
+            "location": {
+              "lat": 35.6595,
+              "lng": 139.7004
+            }
+          },
+          "rating": 4.4,
+          "user_ratings_total": 1800,
+          "types": ["museum", "art_gallery", "tourist_attraction"],
+          "opening_hours": {
+            "open_now": true
+          },
+          "business_status": "OPERATIONAL"
+        }
+      ]
+    },
+    "parks": {
+      "status": "OK",
+      "results": [
+        {
+          "place_id": "ChIJpark_001",
+          "name": "Central Park E",
+          "geometry": {
+            "location": {
+              "lat": 35.7101,
+              "lng": 139.8107
+            }
+          },
+          "rating": 4.5,
+          "user_ratings_total": 5000,
+          "types": ["park", "tourist_attraction", "point_of_interest"],
+          "opening_hours": {
+            "open_now": true
+          },
+          "business_status": "OPERATIONAL"
+        },
+        {
+          "place_id": "ChIJpark_002",
+          "name": "Garden F",
+          "geometry": {
+            "location": {
+              "lat": 35.6850,
+              "lng": 139.7528
+            }
+          },
+          "rating": 4.2,
+          "user_ratings_total": 1200,
+          "types": ["park", "point_of_interest"],
+          "opening_hours": {
+            "open_now": true
+          },
+          "business_status": "OPERATIONAL"
+        }
+      ]
+    }
+  },
+  "placeDetails": {
+    "ChIJrest_001": {
+      "status": "OK",
+      "result": {
+        "place_id": "ChIJrest_001",
+        "name": "Restaurant A",
+        "formatted_address": "1-1 Marunouchi, Chiyoda City, Tokyo 100-0005, Japan",
+        "geometry": {
+          "location": {
+            "lat": 35.6812,
+            "lng": 139.7671
+          }
+        },
+        "rating": 4.5,
+        "user_ratings_total": 1500,
+        "types": ["restaurant", "food", "point_of_interest"],
+        "price_level": 2,
+        "opening_hours": {
+          "open_now": true,
+          "weekday_text": [
+            "Monday: 11:00 AM – 10:00 PM",
+            "Tuesday: 11:00 AM – 10:00 PM",
+            "Wednesday: 11:00 AM – 10:00 PM",
+            "Thursday: 11:00 AM – 10:00 PM",
+            "Friday: 11:00 AM – 11:00 PM",
+            "Saturday: 11:00 AM – 11:00 PM",
+            "Sunday: 11:00 AM – 10:00 PM"
+          ]
+        },
+        "reviews": [
+          {
+            "author_name": "John Doe",
+            "rating": 5,
+            "text": "Excellent food and service!",
+            "time": 1609459200
+          }
+        ],
+        "business_status": "OPERATIONAL"
+      }
+    }
+  },
+  "textSearch": {
+    "sushi_tokyo": {
+      "status": "OK",
+      "results": [
+        {
+          "place_id": "ChIJrest_003",
+          "name": "Sushi Bar C",
+          "geometry": {
+            "location": {
+              "lat": 35.6764,
+              "lng": 139.6993
+            }
+          },
+          "rating": 4.7,
+          "user_ratings_total": 2100,
+          "types": ["restaurant", "food", "point_of_interest"],
+          "price_level": 3
+        }
+      ]
+    }
+  },
+  "edgeCases": {
+    "noResults": {
+      "status": "ZERO_RESULTS",
+      "results": []
+    },
+    "noRatings": {
+      "status": "OK",
+      "results": [
+        {
+          "place_id": "ChIJnorating_001",
+          "name": "New Place",
+          "geometry": {
+            "location": {
+              "lat": 35.6800,
+              "lng": 139.7600
+            }
+          },
+          "types": ["point_of_interest"],
+          "business_status": "OPERATIONAL"
+        }
+      ]
+    },
+    "noOpeningHours": {
+      "status": "OK",
+      "results": [
+        {
+          "place_id": "ChIJnohours_001",
+          "name": "Place Without Hours",
+          "geometry": {
+            "location": {
+              "lat": 35.6800,
+              "lng": 139.7600
+            }
+          },
+          "rating": 4.0,
+          "user_ratings_total": 100,
+          "types": ["point_of_interest"],
+          "business_status": "OPERATIONAL"
+        }
+      ]
+    }
+  }
+}

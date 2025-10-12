@@ -1,0 +1,162 @@
+{
+  "computeRoutes": {
+    "short_route": {
+      "routes": [
+        {
+          "distanceMeters": 1200,
+          "duration": "360s",
+          "polyline": {
+            "encodedPolyline": "ypwxE}yoqYBEDKFQHUJW"
+          },
+          "legs": [
+            {
+              "distanceMeters": 1200,
+              "duration": "360s",
+              "startLocation": {
+                "latLng": {"latitude": 35.6812, "longitude": 139.7671}
+              },
+              "endLocation": {
+                "latLng": {"latitude": 35.6895, "longitude": 139.6917}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "medium_route": {
+      "routes": [
+        {
+          "distanceMeters": 5000,
+          "duration": "900s",
+          "polyline": {
+            "encodedPolyline": "ypwxE}yoqYBEDKFQHUJWLa@Na@Pc@"
+          }
+        }
+      ]
+    },
+    "long_route": {
+      "routes": [
+        {
+          "distanceMeters": 15000,
+          "duration": "1800s",
+          "polyline": {
+            "encodedPolyline": "ypwxE}yoqYBEDKFQHUJWLa@Na@Pc@Re@Tg@"
+          }
+        }
+      ]
+    }
+  },
+  "computeRouteMatrix": {
+    "matrix_3x3": {
+      "origin": [
+        {"latitude": 35.6812, "longitude": 139.7671},
+        {"latitude": 35.6895, "longitude": 139.6917},
+        {"latitude": 35.6764, "longitude": 139.6993}
+      ],
+      "destination": [
+        {"latitude": 35.6812, "longitude": 139.7671},
+        {"latitude": 35.6895, "longitude": 139.6917},
+        {"latitude": 35.6764, "longitude": 139.6993}
+      ],
+      "elements": [
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"},
+        {"distanceMeters": 5000, "duration": "600s", "status": "OK"},
+        {"distanceMeters": 3000, "duration": "900s", "status": "OK"},
+        {"distanceMeters": 5000, "duration": "600s", "status": "OK"},
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"},
+        {"distanceMeters": 2000, "duration": "300s", "status": "OK"},
+        {"distanceMeters": 3000, "duration": "900s", "status": "OK"},
+        {"distanceMeters": 2000, "duration": "300s", "status": "OK"},
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"}
+      ]
+    },
+    "matrix_5x5": {
+      "origin": [
+        {"latitude": 35.6812, "longitude": 139.7671},
+        {"latitude": 35.6895, "longitude": 139.6917},
+        {"latitude": 35.6764, "longitude": 139.6993},
+        {"latitude": 35.7148, "longitude": 139.7967},
+        {"latitude": 35.7101, "longitude": 139.8107}
+      ],
+      "destination": [
+        {"latitude": 35.6812, "longitude": 139.7671},
+        {"latitude": 35.6895, "longitude": 139.6917},
+        {"latitude": 35.6764, "longitude": 139.6993},
+        {"latitude": 35.7148, "longitude": 139.7967},
+        {"latitude": 35.7101, "longitude": 139.8107}
+      ],
+      "elements": [
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"},
+        {"distanceMeters": 5000, "duration": "600s", "status": "OK"},
+        {"distanceMeters": 8000, "duration": "1200s", "status": "OK"},
+        {"distanceMeters": 6000, "duration": "900s", "status": "OK"},
+        {"distanceMeters": 10000, "duration": "1500s", "status": "OK"},
+        
+        {"distanceMeters": 5000, "duration": "600s", "status": "OK"},
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"},
+        {"distanceMeters": 5000, "duration": "800s", "status": "OK"},
+        {"distanceMeters": 4500, "duration": "700s", "status": "OK"},
+        {"distanceMeters": 6500, "duration": "1000s", "status": "OK"},
+        
+        {"distanceMeters": 8000, "duration": "1200s", "status": "OK"},
+        {"distanceMeters": 5000, "duration": "800s", "status": "OK"},
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"},
+        {"distanceMeters": 2000, "duration": "300s", "status": "OK"},
+        {"distanceMeters": 12000, "duration": "1800s", "status": "OK"},
+        
+        {"distanceMeters": 6000, "duration": "900s", "status": "OK"},
+        {"distanceMeters": 4500, "duration": "700s", "status": "OK"},
+        {"distanceMeters": 2000, "duration": "300s", "status": "OK"},
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"},
+        {"distanceMeters": 11000, "duration": "1600s", "status": "OK"},
+        
+        {"distanceMeters": 10000, "duration": "1500s", "status": "OK"},
+        {"distanceMeters": 6500, "duration": "1000s", "status": "OK"},
+        {"distanceMeters": 12000, "duration": "1800s", "status": "OK"},
+        {"distanceMeters": 11000, "duration": "1600s", "status": "OK"},
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"}
+      ]
+    },
+    "matrix_with_traffic": {
+      "origin": [
+        {"latitude": 35.6812, "longitude": 139.7671},
+        {"latitude": 35.6895, "longitude": 139.6917}
+      ],
+      "destination": [
+        {"latitude": 35.6812, "longitude": 139.7671},
+        {"latitude": 35.6895, "longitude": 139.6917}
+      ],
+      "elements": [
+        {"distanceMeters": 0, "duration": "0s", "status": "OK", "condition": "TRAFFIC_CONDITIONS_UNAVAILABLE"},
+        {"distanceMeters": 5000, "duration": "900s", "status": "OK", "condition": "HEAVY_TRAFFIC"},
+        {"distanceMeters": 5000, "duration": "450s", "status": "OK", "condition": "LIGHT_TRAFFIC"},
+        {"distanceMeters": 0, "duration": "0s", "status": "OK", "condition": "TRAFFIC_CONDITIONS_UNAVAILABLE"}
+      ]
+    }
+  },
+  "edgeCases": {
+    "route_not_found": {
+      "routes": [],
+      "status": "NOT_FOUND"
+    },
+    "zero_distance": {
+      "routes": [
+        {
+          "distanceMeters": 0,
+          "duration": "0s",
+          "polyline": {
+            "encodedPolyline": ""
+          }
+        }
+      ]
+    },
+    "matrix_error": {
+      "elements": [
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"},
+        {"distanceMeters": 0, "duration": "0s", "status": "NOT_FOUND"},
+        {"distanceMeters": 0, "duration": "0s", "status": "NOT_FOUND"},
+        {"distanceMeters": 0, "duration": "0s", "status": "OK"}
+      ]
+    }
+  }
+}

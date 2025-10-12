@@ -7,6 +7,8 @@ omit =
     */test_*.py
     */__pycache__/*
     */site-packages/*
+    */venv/*
+    */.venv/*
 
 [report]
 # Target >80% coverage

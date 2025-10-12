@@ -1,0 +1,167 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch: # Allow manual triggers
+
+jobs:
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Don't block CI on lint warnings
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+      
+      - name: Install dependencies
+        run: |
+          uv sync --frozen
+      
+      - name: Run ruff linter
+        run: |
+          uv run ruff check . --output-format=github
+      
+      - name: Run ruff formatter check
+        run: |
+          uv run ruff format --check .
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+      
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            .venv
+          key: ${{ runner.os }}-uv-${{ matrix.python-version }}-${{ hashFiles('**/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-${{ matrix.python-version }}-
+            ${{ runner.os }}-uv-
+      
+      - name: Install dependencies
+        run: |
+          uv sync --frozen
+      
+      - name: Run unit tests
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          uv run pytest tests/ \
+            -v \
+            -m unit \
+            -p no:launch_testing_ros \
+            -p no:cov \
+            --tb=short \
+            --maxfail=5
+      
+      - name: Run integration tests
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          uv run pytest tests/ \
+            -v \
+            -m integration \
+            -p no:launch_testing_ros \
+            -p no:cov \
+            --tb=short
+      
+      - name: Run all tests with coverage
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          uv run pytest tests/ \
+            -v \
+            -p no:launch_testing_ros \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-fail-under=80
+      
+      - name: Upload coverage reports to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      
+      - name: Archive coverage HTML report
+        if: matrix.python-version == '3.12' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: htmlcov/
+          retention-days: 7
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: always()
+    
+    steps:
+      - name: Check test results
+        run: |
+          echo "## CI/CD Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.lint.result }}" == "success" ]; then
+            echo "✅ **Lint**: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Lint**: Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.test.result }}" == "success" ]; then
+            echo "✅ **Tests**: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Tests**: Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Suite Composition" >> $GITHUB_STEP_SUMMARY
+          echo "- 📊 **Unit Tests**: 86 tests (scoring, spatial, routing)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔗 **Integration Tests**: 18 tests (end-to-end pipeline)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📈 **Total**: 104 tests" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎯 **Coverage Target**: ≥80%" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Fail if any job failed
+        if: needs.lint.result != 'success' || needs.test.result != 'success'
+        run: exit 1

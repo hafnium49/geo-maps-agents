@@ -8,14 +8,133 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- PR #5: OR-Tools VRPTW sequencer
-- PR #6: CI/CD & comprehensive test suite
+- Future enhancements and improvements
 
-# Changelog
+---
 
-All notable changes to this project will be documented in this file.
+## [v0.6.0] - 2025-10-12
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+### Added - PR #6: CI/CD & Testing Infrastructure
+
+**Comprehensive Test Suite (104 Tests)**
+
+- **Unit Tests** (86 tests):
+  - `tests/test_scoring.py` (30 tests): Normalization, weights, A/B testing, telemetry
+  - `tests/test_spatial.py` (28 tests): H3 aggregation, HDBSCAN clustering, labeling
+  - `tests/test_routing.py` (28 tests): Matrix management, VRPTW, greedy sequencing
+  
+- **Integration Tests** (18 tests):
+  - `tests/test_integration.py` (548 lines): End-to-end pipeline validation
+  - Error handling and graceful degradation
+  - Fallback mechanism testing (clustering, VRPTW → greedy)
+  - A/B testing variant validation
+  - Output format validation
+  - Performance benchmarks
+  
+- **Test Infrastructure**:
+  - `pytest.ini`: Test discovery, markers (unit/integration/slow), ROS plugin workarounds
+  - `.coveragerc`: Coverage configuration (≥80% target)
+  - `tests/conftest.py` (209 lines): Shared fixtures, mock API clients
+  - `tests/fixtures/places_api.json` (180 lines): Mock Places API responses
+  - `tests/fixtures/routes_api.json` (130 lines): Mock Routes API responses
+  
+- **Mock API Infrastructure**:
+  - `MockPlacesAPI`: Returns fixture data instead of real API calls
+  - `MockRoutesAPI`: Returns fixture data for matrix computations
+  - Zero network calls during testing
+  - Zero API costs during testing
+  - Fast execution (~25 seconds for full suite)
+  
+- **CI/CD Pipeline**:
+  - `.github/workflows/ci.yml` (157 lines): GitHub Actions workflow
+  - **Lint Job**: Ruff code quality checks (non-blocking)
+  - **Test Job**: Matrix testing on Python 3.11 & 3.12
+  - **Coverage**: Enforced ≥80% threshold with fail-under
+  - **Codecov Integration**: Automatic coverage uploads
+  - **Dependency Caching**: uv cache for faster builds
+  - **Artifact Uploads**: HTML coverage reports
+  - **Summary Reports**: Detailed test results in GitHub UI
+  
+- **Documentation**:
+  - README.md: Comprehensive testing section
+  - Test suite breakdown (104 tests detailed)
+  - Test categories and markers
+  - Mock infrastructure explanation
+  - CI/CD pipeline documentation
+  - Writing tests guide with examples
+  - Updated project structure
+  - Updated contributing section (all 6 PRs complete)
+
+### Changed
+
+- **README.md**:
+  - Added "Testing" section with quick start, test breakdown, CI/CD info
+  - Updated "Development" section with test commands and code quality tools
+  - Updated "Contributing" section showing all 6 PRs complete
+  - Expanded project structure showing test files and fixtures
+  
+- **Test Execution**:
+  - All tests now use `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` to avoid ROS plugin conflicts
+  - Tests run with `-p no:launch_testing_ros` flag for clean execution
+  - Coverage reports generated in multiple formats (terminal, XML, HTML)
+
+### Improved
+
+- **Test Coverage**:
+  - Comprehensive unit tests for all three main modules (scoring, spatial, routing)
+  - Integration tests covering complete end-to-end pipeline
+  - Edge case handling (empty data, missing values, fallbacks)
+  - Performance benchmarks (scoring, clustering)
+  
+- **Code Quality**:
+  - Ruff linter integrated into CI pipeline
+  - Automated format checking
+  - GitHub annotations for lint issues
+  - Non-blocking lint job (warnings don't fail CI)
+  
+- **Development Workflow**:
+  - Fast local test execution (~25s for 104 tests)
+  - Clear test organization by module and category
+  - Easy test filtering with pytest markers
+  - Comprehensive coverage reporting
+  
+- **Observability**:
+  - Detailed test output with -v flag
+  - Coverage reports show missing lines
+  - HTML reports for visual inspection
+  - CI summary shows test composition
+
+### Testing Results
+
+```bash
+============================= 104 passed in 25.22s =============================
+```
+
+**Pass Rate**: 100% (104/104)
+**Execution Time**: ~25 seconds
+**Coverage Target**: ≥80% (enforced by CI)
+
+**Test Breakdown**:
+- Unit Tests: 86 (scoring: 30, spatial: 28, routing: 28)
+- Integration Tests: 18 (end-to-end pipeline, error handling, fallbacks)
+
+### CI/CD Workflow Details
+
+**Triggers**:
+- Push to `main` or `develop` branches
+- Pull requests to `main` or `develop`
+- Manual dispatch (workflow_dispatch)
+
+**Jobs**:
+1. **lint**: Ruff linter + formatter checks (non-blocking)
+2. **test**: Full test suite on Python 3.11 & 3.12 (matrix)
+3. **test-summary**: Aggregate results with status reporting
+
+**Features**:
+- Dependency caching for faster builds
+- Codecov integration for coverage tracking
+- HTML coverage artifact uploads
+- GitHub step summaries with test composition
 
 ---
 

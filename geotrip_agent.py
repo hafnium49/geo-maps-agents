@@ -1,0 +1,705 @@
+from __future__ import annotations
+
+import os, json, math, time, random, asyncio
+from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timedelta
+
+import httpx
+import numpy as np
+import pandas as pd
+import h3
+import hdbscan
+from cachetools import TTLCache
+
+from pydantic import BaseModel, Field
+
+# OpenAI Agents SDK
+from agents import (
+    Agent, Runner, handoff, function_tool, GuardrailFunctionOutput,
+    InputGuardrail, ModelSettings
+)
+from agents.extensions.handoff_prompt import RECOMMENDED_PROMPT_PREFIX
+
+# -----------------------------
+# Constants & Config Defaults
+# -----------------------------
+
+PLACES_BASE = "https://places.googleapis.com/v1"
+ROUTES_MATRIX_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
+
+GOOGLE_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+if not GOOGLE_KEY:
+    raise RuntimeError("Missing GOOGLE_MAPS_API_KEY")
+
+DEFAULT_H3_RES = 9  # city-block scale
+DEFAULT_CLUSTER_MIN_SIZE = 12
+
+# scoring defaults (normalized [0,1])
+DEFAULT_WEIGHTS = dict(w_rating=0.30, w_diversity=0.25, w_eta=0.20, w_open=0.15, w_crowd=0.10)
+
+# Matrix limits from Routes API docs
+MAX_ELEMENTS_GENERAL = 625
+MAX_ELEMENTS_TRAFFIC_AWARE_OPTIMAL = 100
+MAX_ELEMENTS_TRANSIT = 100
+
+# simple traffic TTLs (seconds)
+TTL_TRAFFIC = 5 * 60
+
+# caches
+_matrix_cache = TTLCache(maxsize=2048, ttl=TTL_TRAFFIC)
+
+# -----------------------------
+# Pydantic Types (I/O)
+# -----------------------------
+
+class Location(BaseModel):
+    lat: float
+    lng: float
+
+class TimeWindow(BaseModel):
+    start_iso: str  # ISO8601 local or UTC
+    end_iso: str
+
+class OptimizationConfig(BaseModel):
+    h3_res: int = DEFAULT_H3_RES
+    cluster_min_size: int = DEFAULT_CLUSTER_MIN_SIZE
+    mode: str = "WALK"  # "DRIVE" | "WALK" | "BICYCLE" | "TWO_WHEELER" | "TRANSIT"
+    routing_preference: str = "TRAFFIC_AWARE"  # "TRAFFIC_AWARE" | "TRAFFIC_AWARE_OPTIMAL"
+    language: str = "en"
+    max_candidates: int = 120
+    include_types: Optional[List[str]] = None
+    exclude_types: Optional[List[str]] = None
+    city_profile: Optional[str] = None  # "dense" | "sparse" | None
+
+class WeightConfig(BaseModel):
+    w_rating: float = DEFAULT_WEIGHTS["w_rating"]
+    w_diversity: float = DEFAULT_WEIGHTS["w_diversity"]
+    w_eta: float = DEFAULT_WEIGHTS["w_eta"]
+    w_open: float = DEFAULT_WEIGHTS["w_open"]
+    w_crowd: float = DEFAULT_WEIGHTS["w_crowd"]
+
+class UserPrefs(BaseModel):
+    # rough per-cluster-type affinities learned over time
+    tag_affinity: Dict[str, float] = Field(default_factory=dict)
+
+class PlaceLite(BaseModel):
+    id: str
+    name: str
+    primary_type: Optional[str] = None
+    types: List[str] = Field(default_factory=list)
+    lat: float
+    lng: float
+    rating: Optional[float] = None
+    user_ratings_total: Optional[int] = None
+    price_level: Optional[int] = None
+    is_open_now: Optional[bool] = None
+    maps_url: Optional[str] = None
+
+class ClusterInfo(BaseModel):
+    cluster_id: int
+    label: str
+    hex_ids: List[str]
+    centroid: Location
+
+class ScoredPlace(BaseModel):
+    place: PlaceLite
+    eta_sec: int
+    cluster_id: Optional[int]
+    cluster_label: Optional[str]
+    diversity_gain: float
+    crowd_proxy: float
+    score: float
+
+class DayStop(BaseModel):
+    place: PlaceLite
+    arrival_iso: str
+    depart_iso: str
+    eta_sec: int
+    reason: str
+
+class ItineraryDay(BaseModel):
+    date_iso: str
+    stops: List[DayStop]
+
+class ItineraryOutput(BaseModel):
+    objective: str
+    summary: str
+    day_plans: List[ItineraryDay]
+    clusters: List[ClusterInfo]
+    deckgl_html: Optional[str] = None  # serialized HTML to write to file
+
+# -----------------------------
+# Utilities
+# -----------------------------
+
+def _fieldmask(header_fields: List[str]) -> Dict[str, str]:
+    return {"X-Goog-FieldMask": ",".join(header_fields)}
+
+def _backoff_sleep(attempt: int):
+    time.sleep(min(2 ** attempt + random.random(), 8))
+
+def _robust_norm(series: np.ndarray) -> np.ndarray:
+    lo, hi = np.nanpercentile(series, 5), np.nanpercentile(series, 95)
+    if hi - lo <= 1e-9:
+        return np.zeros_like(series, dtype=float)
+    return np.clip((series - lo) / (hi - lo), 0, 1)
+
+# -----------------------------
+# Google Maps Platform Tools
+# -----------------------------
+
+async def _http_post_json(url: str, json_body: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
+    for attempt in range(4):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(url, json=json_body, headers=headers)
+                if r.status_code >= 500:
+                    _backoff_sleep(attempt)
+                    continue
+                r.raise_for_status()
+                return r.json()
+        except Exception:
+            if attempt == 3: raise
+            _backoff_sleep(attempt)
+    raise RuntimeError("unreachable")
+
+async def _http_get_json(url: str, headers: Dict[str, str]) -> Dict[str, Any]:
+    for attempt in range(4):
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(url, headers=headers)
+                if r.status_code >= 500:
+                    _backoff_sleep(attempt)
+                    continue
+                r.raise_for_status()
+                return r.json()
+        except Exception:
+            if attempt == 3: raise
+            _backoff_sleep(attempt)
+    raise RuntimeError("unreachable")
+
+@function_tool
+async def places_text_search(
+    text_query: str,
+    anchor: Location,
+    radius_m: int = 4000,
+    include_types: Optional[List[str]] = None,
+    language: str = "en",
+    max_results: int = 120,
+) -> List[PlaceLite]:
+    """
+    Cost-aware discovery step: Text Search (New) with FieldMask.
+    """
+    fm = [
+        "places.id","places.displayName","places.location",
+        "places.primaryType","places.types","places.rating","places.userRatingCount",
+        "places.priceLevel","places.currentOpeningHours.openNow","places.googleMapsUri"
+    ]
+    headers = {"X-Goog-Api-Key": GOOGLE_KEY, **_fieldmask(fm)}
+    body = {
+        "textQuery": text_query,
+        "languageCode": language,
+        "maxResultCount": min(max_results, 120),
+        "locationBias": {
+            "circle": {"center": {"latitude": anchor.lat, "longitude": anchor.lng}, "radius": radius_m}
+        },
+        "rankPreference": "POPULARITY"
+    }
+    if include_types:
+        body["includedTypes"] = include_types
+
+    data = await _http_post_json(f"{PLACES_BASE}/places:searchText", body, headers)
+    out = []
+    for p in data.get("places", []):
+        loc = p.get("location", {})
+        out.append(PlaceLite(
+            id=p["id"],
+            name=p["displayName"]["text"],
+            primary_type=p.get("primaryType"),
+            types=p.get("types", []),
+            lat=loc.get("latitude"),
+            lng=loc.get("longitude"),
+            rating=p.get("rating"),
+            user_ratings_total=p.get("userRatingCount"),
+            price_level=p.get("priceLevel"),
+            is_open_now=(p.get("currentOpeningHours", {}) or {}).get("openNow"),
+            maps_url=p.get("googleMapsUri"),
+        ))
+    return out
+
+@function_tool
+async def place_details(place_id: str, language: str="en") -> PlaceLite:
+    """
+    Enrichment step: Details (New) with FieldMask. (Keeps costs low & respects the subset-of-reviews contract.)
+    """
+    fm = [
+        "id","displayName","location","primaryType","types","rating","userRatingCount",
+        "priceLevel","currentOpeningHours.openNow","googleMapsUri","businessStatus"
+    ]
+    headers = {"X-Goog-Api-Key": GOOGLE_KEY, **_fieldmask(fm)}
+    url = f"{PLACES_BASE}/places/{place_id}"
+    data = await _http_get_json(url, headers)
+    loc = data.get("location", {})
+    return PlaceLite(
+        id=data["id"],
+        name=data["displayName"]["text"],
+        primary_type=data.get("primaryType"),
+        types=data.get("types", []),
+        lat=loc.get("latitude"),
+        lng=loc.get("longitude"),
+        rating=data.get("rating"),
+        user_ratings_total=data.get("userRatingCount"),
+        price_level=data.get("priceLevel"),
+        is_open_now=(data.get("currentOpeningHours", {}) or {}).get("openNow"),
+        maps_url=data.get("googleMapsUri"),
+    )
+
+def _matrix_limit(mode: str, routing_pref: str) -> int:
+    if mode.upper() == "TRANSIT": return MAX_ELEMENTS_TRANSIT
+    if routing_pref == "TRAFFIC_AWARE_OPTIMAL": return MAX_ELEMENTS_TRAFFIC_AWARE_OPTIMAL
+    return MAX_ELEMENTS_GENERAL
+
+@function_tool
+async def route_matrix(
+    origins: List[Location],
+    destinations: List[Location],
+    mode: str = "WALK",
+    routing_preference: str = "TRAFFIC_AWARE",
+    language: str = "en"
+) -> List[Dict[str, Any]]:
+    """
+    Traffic-aware matrix with FieldMask and batching. Returns list of matrix elements with originIndex/destinationIndex.
+    """
+    elements = len(origins) * len(destinations)
+    hard_limit = _matrix_limit(mode, routing_preference)
+    if elements > hard_limit:
+        raise ValueError(f"Matrix elements {elements} exceed limit {hard_limit} for this mode/pref")
+
+    # cache key rounded to minute to avoid thrash
+    key = (tuple((round(o.lat,5), round(o.lng,5)) for o in origins),
+           tuple((round(d.lat,5), round(d.lng,5)) for d in destinations),
+           mode, routing_preference)
+    if key in _matrix_cache:
+        return _matrix_cache[key]
+
+    headers = {
+        "X-Goog-Api-Key": GOOGLE_KEY,
+        **_fieldmask(["originIndex","destinationIndex","duration","distanceMeters","status","condition"])
+    }
+    body = {
+        "origins": [{"waypoint": {"location": {"latLng": {"latitude": o.lat, "longitude": o.lng}}}} for o in origins],
+        "destinations": [{"waypoint": {"location": {"latLng": {"latitude": d.lat, "longitude": d.lng}}}} for d in destinations],
+        "travelMode": mode.upper(),
+        "routingPreference": routing_preference,
+        "languageCode": language
+    }
+    data = await _http_post_json(ROUTES_MATRIX_URL, body, headers)
+    _matrix_cache[key] = data
+    return data
+
+# -----------------------------
+# Spatial: H3, clustering, scoring
+# -----------------------------
+
+def _places_to_df(places: List[PlaceLite]) -> pd.DataFrame:
+    rows = []
+    for p in places:
+        rows.append(dict(
+            id=p.id, name=p.name, lat=p.lat, lng=p.lng, rating=p.rating or np.nan,
+            nratings=p.user_ratings_total or 0, open_now=(1 if p.is_open_now else 0),
+            primary=p.primary_type or "", types="|".join(p.types or [])
+        ))
+    return pd.DataFrame(rows)
+
+def _localness_proxy_hex(df: pd.DataFrame, h3_res: int) -> pd.DataFrame:
+    df = df.copy()
+    df["hex"] = df.apply(lambda r: h3.geo_to_h3(r["lat"], r["lng"], h3_res), axis=1)
+    # tourist anchors (you can tune this list)
+    tourist_tokens = ("tourist_attraction","museum","amusement_park","shopping_mall","theme_park","art_gallery","aquarium","zoo","temple","shrine")
+    df["is_tourist_anchor"] = df["types"].str.contains("|".join(tourist_tokens), case=False, regex=True)
+
+    g = df.groupby("hex", as_index=False).agg(
+        hex_mean_rating=("rating","mean"),
+        hex_total_ratings=("nratings","sum"),
+        tourist_anchor_density=("is_tourist_anchor","mean"),
+        lat=("lat","mean"),
+        lng=("lng","mean"),
+        n=("id","count"),
+    )
+    # localness proxy: mean_rating * log1p(total_ratings) / (1 + tourist_anchor_density)
+    g["localness"] = (g["hex_mean_rating"].fillna(0.0) * np.log1p(g["hex_total_ratings"])) / (1.0 + g["tourist_anchor_density"])
+    return g
+
+def _hdbscan_clusters(hex_df: pd.DataFrame, min_cluster_size: int) -> Tuple[pd.DataFrame, List[ClusterInfo]]:
+    if len(hex_df) < min_cluster_size:
+        # degenerate; no clusters
+        hex_df["cluster"] = -1
+        return hex_df, []
+
+    X = hex_df[["lat","lng"]].to_numpy()
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=None)
+    labels = clusterer.fit_predict(X)
+    hex_df = hex_df.copy()
+    hex_df["cluster"] = labels
+
+    clusters: List[ClusterInfo] = []
+    for cid in sorted([c for c in set(labels) if c != -1]):
+        sub = hex_df[hex_df["cluster"] == cid]
+        label = _label_cluster(sub)  # LLM labeling could be added; for now heuristic
+        clusters.append(ClusterInfo(
+            cluster_id=cid,
+            label=label,
+            hex_ids=sub["hex"].tolist(),
+            centroid=Location(lat=float(sub["lat"].mean()), lng=float(sub["lng"].mean()))
+        ))
+    return hex_df, clusters
+
+def _label_cluster(sub: pd.DataFrame) -> str:
+    # quick, interpretable labels from dominant types
+    # (you can replace this with an LLM call if desired)
+    return " + ".join(
+        [tok for tok, _cnt in pd.Series("|".join(sub.get("types", pd.Series([]))).split("|")).value_counts().head(2).items()]
+    ) or "Mixed POIs"
+
+def _score_places(places: List[PlaceLite],
+                  etas_sec: Dict[str,int],
+                  hex_df: pd.DataFrame,
+                  weights: WeightConfig,
+                  user_prefs: Optional[UserPrefs]=None) -> List[ScoredPlace]:
+    df = _places_to_df(places)
+    df["eta"] = df["id"].map(etas_sec).fillna(np.nan)
+    df["crowd_proxy"] = _robust_norm(df["nratings"].to_numpy())  # higher means more crowded
+    df["rating_norm"] = _robust_norm(df["rating"].fillna(0).to_numpy())
+    df["eta_norm"] = _robust_norm(df["eta"].fillna(df["eta"].max() or 0).to_numpy())
+    df["open_now"] = df["open_now"].fillna(0)
+
+    # join localness
+    df["hex"] = df.apply(lambda r: h3.geo_to_h3(r["lat"], r["lng"], int(hex_df.attrs.get("h3_res", DEFAULT_H3_RES))), axis=1)
+    h = hex_df.set_index("hex")
+    df["localness"] = df["hex"].map(h["localness"]).fillna(0)
+    df["localness_norm"] = _robust_norm(df["localness"].to_numpy())
+
+    # diversity gain: prefer types not yet visited — here we use inverse popularity as a proxy
+    # (in a multi-stop selection loop you would recompute this marginally)
+    type_counts = pd.Series("|".join(df["types"]).split("|")).value_counts()
+    rarity = type_counts.max() - type_counts
+    rarity_norm = (rarity - rarity.min()) / (rarity.max() - rarity.min() + 1e-9)
+    # project each place to average rarity of its types
+    def avg_rarity(ts: str) -> float:
+        if not ts: return 0.0
+        toks = [t for t in ts.split("|") if t]
+        return float(np.mean([rarity_norm.get(t, 0.0) for t in toks])) if toks else 0.0
+    df["diversity_gain"] = df["types"].apply(avg_rarity)
+
+    # simple preference multiplier by inferred cluster tag (first type token)
+    if user_prefs and user_prefs.tag_affinity:
+        def aff(ts: str) -> float:
+            for t in (ts.split("|") if ts else []):
+                if t in user_prefs.tag_affinity:
+                    return max(0.5, min(1.5, 1.0 + user_prefs.tag_affinity[t]))
+            return 1.0
+        df["pref_mult"] = df["types"].apply(aff)
+    else:
+        df["pref_mult"] = 1.0
+
+    w = weights.dict()
+    score = (
+        w["w_rating"] * df["rating_norm"] +
+        w["w_diversity"] * df["diversity_gain"] -
+        w["w_eta"] * df["eta_norm"] +
+        w["w_open"] * df["open_now"] -
+        w["w_crowd"] * df["crowd_proxy"]
+    ) * df["pref_mult"]
+    df["score"] = score.fillna(-1.0)
+
+    # emit
+    out: List[ScoredPlace] = []
+    for r in df.itertuples():
+        out.append(ScoredPlace(
+            place=PlaceLite(id=r.id, name=r.name, primary_type=r.primary, types=r.types.split("|") if r.types else [],
+                            lat=r.lat, lng=r.lng, rating=None if math.isnan(r.rating) else float(r.rating),
+                            user_ratings_total=int(r.nratings), price_level=None, is_open_now=bool(r.open_now), maps_url=None),
+            eta_sec=0 if math.isnan(r.eta) else int(r.eta),
+            cluster_id=None, cluster_label=None,
+            diversity_gain=float(r.diversity_gain),
+            crowd_proxy=float(r.crowd_proxy),
+            score=float(r.score),
+        ))
+    return out
+
+# -----------------------------
+# OR-Tools: single-day TSP-TW
+# -----------------------------
+
+def _sequence_single_day(stops: List[ScoredPlace], anchor: Location, window: TimeWindow) -> ItineraryDay:
+    """
+    Minimal TSP-TW: we greedily sort by score/ETA (replace with OR-Tools VRPTW for exact).
+    In production, replace with a call to OR-Tools RoutingModel + time windows.
+    """
+    # Sort high score first, then tiebreak by eta
+    ordered = sorted(stops, key=lambda s: (-s.score, s.eta_sec))
+    start = datetime.fromisoformat(window.start_iso)
+    end = datetime.fromisoformat(window.end_iso)
+
+    slots: List[DayStop] = []
+    cur = start
+    for s in ordered:
+        travel = max(180, s.eta_sec)  # min 3 min
+        arrive = cur + timedelta(seconds=travel)
+        dwell = timedelta(minutes=35)  # heuristic service time
+        depart = arrive + dwell
+        if depart > end:
+            break
+        slots.append(DayStop(
+            place=s.place,
+            arrival_iso=arrive.isoformat(timespec="seconds"),
+            depart_iso=depart.isoformat(timespec="seconds"),
+            eta_sec=s.eta_sec,
+            reason=f"Score={s.score:.2f}; open_now={s.place.is_open_now}; diversity_gain={s.diversity_gain:.2f}"
+        ))
+        cur = depart
+
+    return ItineraryDay(date_iso=start.date().isoformat(), stops=slots)
+
+# -----------------------------
+# deck.gl HTML (Google Maps JS)
+# -----------------------------
+
+def _render_deckgl_html(anchor: Location, scored: List[ScoredPlace], clusters: List[ClusterInfo]) -> str:
+    """
+    Returns a small self-contained HTML string that shows POIs + cluster centroids over a Google Map with deck.gl overlay.
+    """
+    pts = [
+        {"name": s.place.name, "lat": s.place.lat, "lng": s.place.lng, "score": round(s.score,2),
+         "eta": s.eta_sec, "cluster": s.cluster_label or ""}
+        for s in scored
+    ]
+    cents = [{"lat": c.centroid.lat, "lng": c.centroid.lng, "label": c.label} for c in clusters]
+    return f"""<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"><title>GeoTrip Plan</title>
+    <script src="https://unpkg.com/deck.gl@^9.0.0/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/google-maps@^9.0.0/dist.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key={GOOGLE_KEY}&v=beta&libraries=maps,marker"></script>
+    <style>html,body,#map{{height:100%;margin:0}}</style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script>
+      const map = new google.maps.Map(document.getElementById('map'), {{
+        center: {{lat:{anchor.lat}, lng:{anchor.lng}}}, zoom: 13, mapId: undefined
+      }});
+      const overlay = new deck.GoogleMapsOverlay({{
+        layers: [
+          new deck.ScatterplotLayer({{
+            id: 'poi',
+            data: {json.dumps(pts)},
+            getPosition: d => [d.lng, d.lat],
+            getRadius: d => 15 + (d.score*10),
+            pickable: true
+          }}),
+          new deck.TextLayer({{
+            id: 'centroids',
+            data: {json.dumps(cents)},
+            getPosition: d => [d.lng, d.lat],
+            getText: d => d.label,
+            getSize: 14,
+            getPixelOffset: [0, -12]
+          }})
+        ]
+      }});
+      overlay.setMap(map);
+    </script>
+  </body>
+</html>"""
+
+# -----------------------------
+# Guardrails (ToS & sanity)
+# -----------------------------
+
+async def tos_guardrail(_ctx, _agent, input_text: str):
+    text = (input_text or "").lower()
+    # block common ToS-violating intents
+    prohibited = [
+        "openstreetmap", "osm ", " maplibre", "mapbox", "mix places data with non-google map"
+    ]
+    if any(tok in text for tok in prohibited):
+        return GuardrailFunctionOutput(
+            output_info={"reason":"Google Places content must be displayed on a Google Map and retain attribution."},
+            tripwire_triggered=True
+        )
+    return GuardrailFunctionOutput(output_info={"ok":True}, tripwire_triggered=False)
+
+InputTos = InputGuardrail(guardrail_function=tos_guardrail)
+
+# -----------------------------
+# Agents
+# -----------------------------
+
+# Data agent: discovery + enrichment + hex index + cluster
+data_agent = Agent(
+    name="Data Agent",
+    instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
+You fetch Places cost-effectively (Text Search -> Details) with FieldMasks; you compute H3 features and HDBSCAN clusters.
+""",
+    tools=[places_text_search, place_details],
+    input_guardrails=[InputTos],
+    model_settings=ModelSettings(model_name="gpt-4.1-mini"),
+)
+
+# Spatial agent: travel-time, scoring, clustering
+@function_tool
+async def spatial_context_and_scoring(anchor: Location,
+                                      window: TimeWindow,
+                                      cfg: OptimizationConfig,
+                                      weights: WeightConfig,
+                                      seed_places: List[PlaceLite]) -> Dict[str, Any]:
+    # H3 aggregation
+    h3_res = cfg.h3_res
+    df = _places_to_df(seed_places)
+    hex_df = _localness_proxy_hex(df, h3_res)
+    hex_df.attrs["h3_res"] = h3_res
+
+    # route ETAs from anchor -> places
+    origins = [anchor]
+    destinations = [Location(lat=float(r.lat), lng=float(r.lng)) for r in df.itertuples()]
+    matrix = await route_matrix(origins, destinations, mode=cfg.mode, routing_preference=cfg.routing_preference)
+    # build {place_id: eta}
+    etas: Dict[str, int] = {}
+    for row in matrix:
+        # originIndex always 0 here
+        di = row.get("destinationIndex")
+        dur = row.get("duration", "0s")
+        sec = int(dur.replace("s","")) if isinstance(dur, str) and dur.endswith("s") else 0
+        place_id = df.iloc[di]["id"]
+        etas[place_id] = sec
+
+    # clusters (on hex centroids)
+    hex_df2, clusters = _hdbscan_clusters(hex_df, cfg.cluster_min_size)
+
+    # score
+    scored = _score_places(seed_places, etas, hex_df2, weights=weights)
+
+    # attach cluster label by nearest hex centroid
+    hex_map = hex_df2.set_index("hex")
+    for s in scored:
+        hx = h3.geo_to_h3(s.place.lat, s.place.lng, h3_res)
+        if hx in hex_map.index:
+            cid = int(hex_map.loc[hx, "cluster"])
+            s.cluster_id = None if cid == -1 else cid
+            s.cluster_label = None
+            for c in clusters:
+                if c.cluster_id == cid:
+                    s.cluster_label = c.label
+                    break
+
+    # shortlist top N feasible in window
+    top = sorted(scored, key=lambda x: x.score, reverse=True)[: min(30, len(scored))]
+    day = _sequence_single_day(top, anchor, window)
+
+    html = _render_deckgl_html(anchor, top, clusters)
+
+    return ItineraryOutput(
+        objective="Personalized, time-window-aware plan",
+        summary=f"{len(day.stops)} stops scheduled; {len(clusters)} neighborhood patterns found.",
+        day_plans=[day],
+        clusters=clusters,
+        deckgl_html=html
+    ).dict()
+
+spatial_agent = Agent(
+    name="Spatial Agent",
+    instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
+You combine travel-time context (Routes API matrix, traffic-aware) with H3 features to score and sequence POIs.
+""",
+    tools=[spatial_context_and_scoring],
+    input_guardrails=[InputTos],
+    model_settings=ModelSettings(model_name="gpt-4.1-mini"),
+)
+
+# UX agent: explain + produce output (structured)
+class FinalOutput(BaseModel):
+    html_filename: Optional[str]
+    itinerary: ItineraryOutput
+
+@function_tool
+async def write_map_html(html: str, filename: str = "geotrip_map.html") -> str:
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(html)
+    return filename
+
+ux_agent = Agent(
+    name="UX Agent",
+    instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
+You present a concise summary and write a deck.gl-on-Google-Maps HTML file. Always keep Places content on a Google Map.
+""",
+    tools=[write_map_html],
+    input_guardrails=[InputTos],
+    model_settings=ModelSettings(model_name="gpt-4.1-mini"),
+    output_type=FinalOutput,
+)
+
+# Orchestrator with handoffs
+triage_agent = Agent(
+    name="GeoTrip Orchestrator",
+    handoffs=[
+        handoff(data_agent),
+        handoff(spatial_agent),
+        handoff(ux_agent),
+    ],
+    instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
+You run the pipeline:
+
+1) Ask Data Agent (Text Search) for substrate near the anchor.
+2) Ask Data Agent (Details) for the top K seed places.
+3) Ask Spatial Agent to compute ETAs (Routes API), H3 features, HDBSCAN clusters, and scores.
+4) Ask UX Agent to persist HTML overlay and return the final typed output.
+
+Constraints:
+- Use FieldMasks on all Google calls.
+- Respect matrix element limits and traffic-awareness.
+- Never mix Places content on a non-Google map. Ensure attribution by using the Google Map in the HTML.
+- For rural sparsity, reduce min_cluster_size and fall back to score-only shortlisting if clustering is degenerate.
+- Weight defaults: {json.dumps(DEFAULT_WEIGHTS)}; ensure all terms normalized to [0,1].
+
+Return FinalOutput.
+""",
+    model_settings=ModelSettings(model_name="gpt-4.1"),
+    output_type=FinalOutput,
+)
+
+# -----------------------------
+# Example entrypoint
+# -----------------------------
+
+async def optimize_itinerary_example():
+    anchor = Location(lat=35.6895, lng=139.6917)  # Tokyo Station-ish
+    window = TimeWindow(
+        start_iso=(datetime.now().replace(hour=13, minute=0, second=0, microsecond=0)).isoformat(),
+        end_iso=(datetime.now().replace(hour=18, minute=0, second=0, microsecond=0)).isoformat(),
+    )
+    cfg = OptimizationConfig(
+        h3_res=9, cluster_min_size=12, mode="TRANSIT", routing_preference="TRAFFIC_AWARE",
+        language="en", include_types=["restaurant","cafe","museum","tourist_attraction"], max_candidates=100
+    )
+    weights = WeightConfig()
+    query = "best local eats and culture spots"
+
+    # Run the orchestration: the LLM will choose tools/handoffs
+    prompt = (
+        f"Anchor: {anchor}\nTimeWindow: {window}\nConfig: {cfg}\nWeights: {weights}\n"
+        f"Query: {query}\n"
+        "Execute the pipeline with the specified steps, and return FinalOutput."
+    )
+    result = await Runner.run(triage_agent, prompt)
+
+    final = result.final_output_as(FinalOutput, raise_if_incorrect_type=False)
+    # Persist the map file
+    if final and final.itinerary and final.itinerary.deckgl_html:
+        fname = await write_map_html(final.itinerary.deckgl_html)
+        print(f"Wrote map HTML: {fname}")
+    print(json.dumps(final.itinerary.dict(), ensure_ascii=False, indent=2))
+
+if __name__ == "__main__":
+    asyncio.run(optimize_itinerary_example())

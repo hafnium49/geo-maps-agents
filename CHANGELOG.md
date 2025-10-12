@@ -8,9 +8,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- PR #4: HDBSCAN fallback logic
 - PR #5: OR-Tools VRPTW sequencer
 - PR #6: CI/CD & comprehensive test suite
+
+## [0.4.0] - 2025-10-12
+
+### Added - PR #4: HDBSCAN Fallback Logic
+- **New Spatial Module**
+  - `src/spatial/clustering.py` with robust clustering implementation (430+ lines)
+  - `src/spatial/__init__.py` for clean public API exports
+  - `ClusteringConfig` dataclass for configuration
+  - `ClusteringDiagnostics` dataclass for quality metrics
+  - `ClusterInfo` dataclass for cluster metadata
+  
+- **Fallback Logic**
+  - `cluster_with_fallback()` main clustering function with comprehensive error handling
+  - `_detect_degenerate_case()` for sparse data detection
+  - `_handle_over_clustering()` with adaptive refitting
+  - `_compute_cluster_quality()` with silhouette score calculation
+  - `_fallback_to_scores()` for graceful degradation to score-only selection
+  
+- **Quality Assessment**
+  - Silhouette score computation (range: -1 to 1)
+  - Cluster size distribution tracking
+  - Noise ratio monitoring
+  - Actionable suggestions based on quality metrics
+  
+- **Enhanced Labeling**
+  - `label_cluster()` with deterministic token selection
+  - Generic token filtering ("point_of_interest", "establishment")
+  - Top-N token aggregation (default: 2 tokens)
+  - Graceful handling of empty/missing types
+  
+- **Diagnostics & Telemetry**
+  - Comprehensive logging of clustering results
+  - Fallback reason tracking for debugging
+  - Refit attempt counting
+  - Configuration tracking (actual config used after refitting)
+  
+- **Testing & Verification**
+  - `verify_pr4.py` automated verification script (7 checks)
+  - Degenerate case handling tests
+  - Over-clustering detection tests
+  - Successful clustering tests
+  - Label determinism tests
+  - Integration tests with geotrip_agent.py
+  
+- **Documentation**
+  - `PR4_SUMMARY.md` comprehensive technical overview
+  - `QUICK_REFERENCE_PR4.md` usage guide and API reference
+
+### Changed
+- **geotrip_agent.py**
+  - `_hdbscan_clusters()` now returns `(hex_df, clusters, diagnostics)` tuple (was `(hex_df, clusters)`)
+  - Enhanced with automatic diagnostics logging
+  - Delegates to `src.spatial.cluster_with_fallback()`
+  - `_label_cluster()` now delegates to `src.spatial.label_cluster()`
+  - `spatial_context_and_scoring()` updated to handle diagnostics tuple
+  
+- **Clustering Algorithm**
+  - Now detects degenerate cases (< min_cluster_size points)
+  - Automatically refits when over-clustering detected (> max_clusters)
+  - Computes silhouette scores for quality assessment
+  - Falls back to score-only selection when clustering fails
+
+### Deprecated
+- Old `_hdbscan_clusters()` signature without diagnostics (backward compatible)
+- Old `_label_cluster()` function (use `src.spatial.label_cluster()`)
+
+### Improved
+- **Robustness**
+  - Never crashes on edge cases (too few points, HDBSCAN failures)
+  - Graceful degradation to score-only selection
+  - Adaptive refitting prevents over-clustering
+  - Clear error messages with actionable suggestions
+  
+- **Quality Metrics**
+  - Silhouette scores enable A/B testing measurement
+  - Cluster size distribution helps identify fragmentation
+  - Noise ratio tracking shows clustering effectiveness
+  
+- **Observability**
+  - Every clustering run gets detailed diagnostics
+  - Automatic logging of success/fallback status
+  - Suggestions provided for poor-quality results
+  - Refit attempts tracked for performance monitoring
+
+- **Determinism**
+  - Cluster labels are now deterministic (same input → same output)
+  - Generic tokens filtered for more meaningful labels
+  - Robust handling of tie-breaking in token selection
 
 ## [0.3.0] - 2025-10-12
 

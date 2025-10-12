@@ -45,6 +45,15 @@ from src.routing import (
     Location as RouteLocation,
 )
 
+# Import spatial clustering module
+from src.spatial import (
+    cluster_with_fallback,
+    ClusteringConfig,
+    ClusteringDiagnostics,
+    ClusterInfo as SpatialClusterInfo,
+    label_cluster,
+)
+
 # OpenAI Agents SDK
 from agents import (
     Agent, Runner, handoff, function_tool, GuardrailFunctionOutput,
@@ -380,33 +389,68 @@ def _localness_proxy_hex(df: pd.DataFrame, h3_res: int) -> pd.DataFrame:
     g["localness"] = (g["hex_mean_rating"].fillna(0.0) * np.log1p(g["hex_total_ratings"])) / (1.0 + g["tourist_anchor_density"])
     return g
 
-def _hdbscan_clusters(hex_df: pd.DataFrame, min_cluster_size: int) -> Tuple[pd.DataFrame, List[ClusterInfo]]:
-    if len(hex_df) < min_cluster_size:
-        # degenerate; no clusters
-        hex_df["cluster"] = -1
-        return hex_df, []
-
-    X = hex_df[["lat","lng"]].to_numpy()
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=None)
-    labels = clusterer.fit_predict(X)
-    hex_df = hex_df.copy()
-    hex_df["cluster"] = labels
-
+def _hdbscan_clusters(
+    hex_df: pd.DataFrame,
+    min_cluster_size: int
+) -> Tuple[pd.DataFrame, List[ClusterInfo], ClusteringDiagnostics]:
+    """
+    Wrapper around enhanced clustering module with fallback logic.
+    
+    DEPRECATED: Use src.spatial.cluster_with_fallback() directly.
+    Kept for backward compatibility.
+    
+    Returns:
+        (hex_df_with_clusters, cluster_infos, diagnostics)
+    """
+    config = ClusteringConfig(
+        min_cluster_size=min_cluster_size,
+        min_clusters=2,
+        max_clusters=10,
+        enable_refitting=True,
+    )
+    
+    hex_df_result, spatial_clusters, diagnostics = cluster_with_fallback(hex_df, config)
+    
+    # Convert SpatialClusterInfo to legacy ClusterInfo format
     clusters: List[ClusterInfo] = []
-    for cid in sorted([c for c in set(labels) if c != -1]):
-        sub = hex_df[hex_df["cluster"] == cid]
-        label = _label_cluster(sub)  # LLM labeling could be added; for now heuristic
+    for sc in spatial_clusters:
         clusters.append(ClusterInfo(
-            cluster_id=cid,
-            label=label,
-            hex_ids=sub["hex"].tolist(),
-            centroid=Location(lat=float(sub["lat"].mean()), lng=float(sub["lng"].mean()))
+            cluster_id=sc.cluster_id,
+            label=sc.label,
+            hex_ids=sc.hex_ids,
+            centroid=Location(lat=sc.centroid_lat, lng=sc.centroid_lng)
         ))
-    return hex_df, clusters
+    
+    # Log diagnostics
+    if diagnostics.fallback_triggered:
+        print(f"\n⚠️ Clustering Diagnostics:")
+        print(f"  Fallback: {diagnostics.fallback_reason}")
+        for suggestion in diagnostics.suggestions:
+            print(f"  💡 {suggestion}")
+    else:
+        print(f"\n✅ Clustering Success:")
+        print(f"  Points: {diagnostics.num_points}")
+        print(f"  Clusters: {diagnostics.num_clusters}")
+        print(f"  Noise: {diagnostics.num_noise}")
+        if diagnostics.silhouette_score is not None:
+            print(f"  Quality (silhouette): {diagnostics.silhouette_score:.3f}")
+        if diagnostics.refit_attempts > 0:
+            print(f"  Refit attempts: {diagnostics.refit_attempts}")
+    
+    return hex_df_result, clusters, diagnostics
 
 def _label_cluster(sub: pd.DataFrame) -> str:
-    # quick, interpretable labels from dominant types
-    # (you can replace this with an LLM call if desired)
+    """
+    Legacy labeling function for backward compatibility.
+    
+    DEPRECATED: Use src.spatial.label_cluster() directly.
+    """
+    # Extract cluster ID if available
+    if "cluster" in sub.columns and len(sub) > 0:
+        cluster_id = sub["cluster"].iloc[0]
+        return label_cluster(sub, cluster_id)
+    
+    # Fallback to old logic
     return " + ".join(
         [tok for tok, _cnt in pd.Series("|".join(sub.get("types", pd.Series([]))).split("|")).value_counts().head(2).items()]
     ) or "Mixed POIs"
@@ -636,8 +680,8 @@ async def spatial_context_and_scoring(anchor: Location,
         place_id = df.iloc[di]["id"]
         etas[place_id] = sec
 
-    # clusters (on hex centroids)
-    hex_df2, clusters = _hdbscan_clusters(hex_df, cfg.cluster_min_size)
+    # clusters (on hex centroids) with enhanced fallback logic
+    hex_df2, clusters, diagnostics = _hdbscan_clusters(hex_df, cfg.cluster_min_size)
 
     # score
     scored = _score_places(seed_places, etas, hex_df2, weights=weights)

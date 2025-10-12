@@ -8,11 +8,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- PR #2: Matrix guardrails & caching improvements
 - PR #3: A/B testing harness & scoring normalization
 - PR #4: HDBSCAN fallback logic
 - PR #5: OR-Tools VRPTW sequencer
 - PR #6: CI/CD & comprehensive test suite
+
+## [0.2.0] - 2025-10-12
+
+### Added - PR #2: Matrix Guardrails & Caching
+- **New Routing Module**
+  - `src/routing/matrix.py` with comprehensive matrix computation logic (450+ lines)
+  - `src/routing/__init__.py` for clean public API exports
+  - `MatrixCache` class with dual-TTL caching (5min traffic / 60min static)
+  - `TravelMode` and `RoutingPreference` enums for type safety
+  - `MatrixRequest` dataclass for structured requests
+  
+- **Enhanced Error Handling**
+  - `validate_matrix_request()` with detailed error messages
+  - Helpful suggestions when limits exceeded (5 actionable fixes)
+  - Dynamic limit calculation with `get_matrix_limits()`
+  
+- **Improved Retry Logic**
+  - `exponential_backoff_with_jitter()` for better retry behavior
+  - Truncated exponential growth with randomization
+  - Configurable max backoff time (8 seconds)
+  
+- **Future-Ready Features**
+  - `compute_route_matrix_streaming()` placeholder for gRPC
+  - Cache statistics with `get_cache_stats()`
+  - Cache management with `clear_cache()`
+  
+- **Testing & Verification**
+  - `verify_pr2.py` automated verification script (10 checks)
+  - `PR2_SUMMARY.md` comprehensive PR documentation
+
+### Changed
+- **geotrip_agent.py**
+  - `route_matrix()` now uses enhanced `src.routing` module
+  - Automatic conversion from strings to type-safe enums
+  - Delegates to `compute_route_matrix()` with full guardrails
+  
+### Deprecated
+- `_matrix_limit()` function (use `src.routing.get_matrix_limits()`)
+- `_backoff_sleep()` function (use `src.routing.matrix.exponential_backoff_with_jitter()`)
+- Direct `_matrix_cache` access (use `src.routing` cache system)
+
+### Improved
+- **Cache Efficiency**
+  - Static routes cached 12× longer (60min vs 5min)
+  - Separate caches prevent traffic routes from evicting static ones
+  - Automatic cache selection based on routing preference
+  
+- **Error Messages**
+  - Now show requested vs maximum elements
+  - Provide 5 specific suggestions to fix limit violations
+  - Include mode-specific guidance
+
+- **Type Safety**
+  - Enums prevent invalid mode/preference values
+  - Dataclasses ensure structured data
+  - Better IDE autocomplete and type checking
 
 ## [0.1.0] - 2025-10-12
 

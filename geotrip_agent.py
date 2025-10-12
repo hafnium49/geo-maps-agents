@@ -27,6 +27,15 @@ from src.tools.fields import (
 )
 from src.tools.config_loader import get_config
 
+# Import enhanced routing module
+from src.routing import (
+    compute_route_matrix as compute_matrix_enhanced,
+    MatrixRequest,
+    TravelMode,
+    RoutingPreference,
+    Location as RouteLocation,
+)
+
 # OpenAI Agents SDK
 from agents import (
     Agent, Runner, handoff, function_tool, GuardrailFunctionOutput,
@@ -54,16 +63,11 @@ DEFAULT_CLUSTER_MIN_SIZE = 12
 # scoring defaults (normalized [0,1])
 DEFAULT_WEIGHTS = dict(w_rating=0.30, w_diversity=0.25, w_eta=0.20, w_open=0.15, w_crowd=0.10)
 
-# Matrix limits from Routes API docs
+# Matrix limits and caching now handled by src.routing module
+# Legacy constants kept for backward compatibility
 MAX_ELEMENTS_GENERAL = 625
 MAX_ELEMENTS_TRAFFIC_AWARE_OPTIMAL = 100
 MAX_ELEMENTS_TRANSIT = 100
-
-# simple traffic TTLs (seconds)
-TTL_TRAFFIC = 5 * 60
-
-# caches
-_matrix_cache = TTLCache(maxsize=2048, ttl=TTL_TRAFFIC)
 
 # -----------------------------
 # Pydantic Types (I/O)
@@ -154,6 +158,14 @@ def _fieldmask(header_fields: List[str]) -> Dict[str, str]:
     return {"X-Goog-FieldMask": ",".join(header_fields)}
 
 def _backoff_sleep(attempt: int):
+    """
+    Exponential backoff with jitter for retries.
+    
+    DEPRECATED: Use src.routing.matrix.exponential_backoff_with_jitter() instead.
+    Kept for backward compatibility with existing code.
+    
+    Formula: min(2^attempt + random(0,1), 8)
+    """
     time.sleep(min(2 ** attempt + random.random(), 8))
 
 def _robust_norm(series: np.ndarray) -> np.ndarray:
@@ -267,6 +279,10 @@ async def place_details(place_id: str, language: str="en") -> PlaceLite:
     )
 
 def _matrix_limit(mode: str, routing_pref: str) -> int:
+    """
+    DEPRECATED: Use src.routing.get_matrix_limits() instead.
+    Kept for backward compatibility.
+    """
     if mode.upper() == "TRANSIT": return MAX_ELEMENTS_TRANSIT
     if routing_pref == "TRAFFIC_AWARE_OPTIMAL": return MAX_ELEMENTS_TRAFFIC_AWARE_OPTIMAL
     return MAX_ELEMENTS_GENERAL
@@ -280,36 +296,42 @@ async def route_matrix(
     language: str = "en"
 ) -> List[Dict[str, Any]]:
     """
-    Traffic-aware matrix with FieldMask and batching.
-    Uses centralized ROUTES_MATRIX_FIELDS from src.tools.fields.
+    Traffic-aware matrix with enhanced guardrails and dual-TTL caching.
+    
+    Now uses the enhanced src.routing module with:
+    - Detailed element-limit validation with helpful error messages
+    - Dual-TTL caching (5min for traffic-aware, 60min for static)
+    - Exponential backoff with jitter for retries
+    
     Returns list of matrix elements with originIndex/destinationIndex.
     """
-    elements = len(origins) * len(destinations)
-    hard_limit = _matrix_limit(mode, routing_preference)
-    if elements > hard_limit:
-        raise ValueError(f"Matrix elements {elements} exceed limit {hard_limit} for this mode/pref")
-
-    # cache key rounded to minute to avoid thrash
-    key = (tuple((round(o.lat,5), round(o.lng,5)) for o in origins),
-           tuple((round(d.lat,5), round(d.lng,5)) for d in destinations),
-           mode, routing_preference)
-    if key in _matrix_cache:
-        return _matrix_cache[key]
-
-    headers = {
-        "X-Goog-Api-Key": GOOGLE_KEY,
-        **get_routes_matrix_mask()
-    }
-    body = {
-        "origins": [{"waypoint": {"location": {"latLng": {"latitude": o.lat, "longitude": o.lng}}}} for o in origins],
-        "destinations": [{"waypoint": {"location": {"latLng": {"latitude": d.lat, "longitude": d.lng}}}} for d in destinations],
-        "travelMode": mode.upper(),
-        "routingPreference": routing_preference,
-        "languageCode": language
-    }
-    data = await _http_post_json(ROUTES_MATRIX_URL, body, headers)
-    _matrix_cache[key] = data
-    return data
+    # Convert to new module's types
+    route_origins = [RouteLocation(lat=o.lat, lng=o.lng) for o in origins]
+    route_dests = [RouteLocation(lat=d.lat, lng=d.lng) for d in destinations]
+    
+    # Map mode string to enum
+    try:
+        travel_mode = TravelMode[mode.upper()]
+    except KeyError:
+        travel_mode = TravelMode.WALK
+    
+    # Map routing preference string to enum
+    try:
+        route_pref = RoutingPreference[routing_preference.upper()]
+    except KeyError:
+        route_pref = RoutingPreference.TRAFFIC_AWARE
+    
+    # Create request
+    request = MatrixRequest(
+        origins=route_origins,
+        destinations=route_dests,
+        mode=travel_mode,
+        routing_preference=route_pref,
+        language=language,
+    )
+    
+    # Use enhanced compute function (with validation, caching, retries)
+    return await compute_matrix_enhanced(request, api_key=GOOGLE_KEY)
 
 # -----------------------------
 # Spatial: H3, clustering, scoring

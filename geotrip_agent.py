@@ -27,6 +27,15 @@ from src.tools.fields import (
 )
 from src.tools.config_loader import get_config
 
+# Import enhanced scoring module
+from src.scoring import (
+    PlaceScorer,
+    WeightConfig as ScoringWeightConfig,
+    select_ab_variant,
+    normalize_rating,
+    normalize_eta,
+)
+
 # Import enhanced routing module
 from src.routing import (
     compute_route_matrix as compute_matrix_enhanced,
@@ -98,6 +107,7 @@ class WeightConfig(BaseModel):
     w_eta: float = DEFAULT_WEIGHTS["w_eta"]
     w_open: float = DEFAULT_WEIGHTS["w_open"]
     w_crowd: float = DEFAULT_WEIGHTS["w_crowd"]
+    variant_name: Optional[str] = "default"  # For A/B testing telemetry
 
 class UserPrefs(BaseModel):
     # rough per-cluster-type affinities learned over time
@@ -169,10 +179,14 @@ def _backoff_sleep(attempt: int):
     time.sleep(min(2 ** attempt + random.random(), 8))
 
 def _robust_norm(series: np.ndarray) -> np.ndarray:
-    lo, hi = np.nanpercentile(series, 5), np.nanpercentile(series, 95)
-    if hi - lo <= 1e-9:
-        return np.zeros_like(series, dtype=float)
-    return np.clip((series - lo) / (hi - lo), 0, 1)
+    """
+    Legacy normalization function for backward compatibility.
+    
+    DEPRECATED: Use src.scoring.percentile_norm() instead.
+    This function now delegates to the new normalization module.
+    """
+    from src.scoring import percentile_norm
+    return percentile_norm(series, low_percentile=5.0, high_percentile=95.0, invert=False)
 
 # -----------------------------
 # Google Maps Platform Tools
@@ -402,65 +416,76 @@ def _score_places(places: List[PlaceLite],
                   hex_df: pd.DataFrame,
                   weights: WeightConfig,
                   user_prefs: Optional[UserPrefs]=None) -> List[ScoredPlace]:
+    """
+    Score places using the enhanced scoring module with telemetry.
+    
+    Now delegates to src.scoring for:
+    - Percentile-based normalization (5th/95th)
+    - Proper ETA inversion (lower ETA = higher score)
+    - Detailed telemetry logging
+    """
+    # Convert places to DataFrame
     df = _places_to_df(places)
-    df["eta"] = df["id"].map(etas_sec).fillna(np.nan)
-    df["crowd_proxy"] = _robust_norm(df["nratings"].to_numpy())  # higher means more crowded
-    df["rating_norm"] = _robust_norm(df["rating"].fillna(0).to_numpy())
-    df["eta_norm"] = _robust_norm(df["eta"].fillna(df["eta"].max() or 0).to_numpy())
-    df["open_now"] = df["open_now"].fillna(0)
-
-    # join localness
-    df["hex"] = df.apply(lambda r: h3.geo_to_h3(r["lat"], r["lng"], int(hex_df.attrs.get("h3_res", DEFAULT_H3_RES))), axis=1)
-    h = hex_df.set_index("hex")
-    df["localness"] = df["hex"].map(h["localness"]).fillna(0)
-    df["localness_norm"] = _robust_norm(df["localness"].to_numpy())
-
-    # diversity gain: prefer types not yet visited — here we use inverse popularity as a proxy
-    # (in a multi-stop selection loop you would recompute this marginally)
-    type_counts = pd.Series("|".join(df["types"]).split("|")).value_counts()
-    rarity = type_counts.max() - type_counts
-    rarity_norm = (rarity - rarity.min()) / (rarity.max() - rarity.min() + 1e-9)
-    # project each place to average rarity of its types
-    def avg_rarity(ts: str) -> float:
-        if not ts: return 0.0
-        toks = [t for t in ts.split("|") if t]
-        return float(np.mean([rarity_norm.get(t, 0.0) for t in toks])) if toks else 0.0
-    df["diversity_gain"] = df["types"].apply(avg_rarity)
-
-    # simple preference multiplier by inferred cluster tag (first type token)
+    
+    # Convert WeightConfig to ScoringWeightConfig
+    scoring_weights = ScoringWeightConfig(
+        w_rating=weights.w_rating,
+        w_diversity=weights.w_diversity,
+        w_eta=weights.w_eta,
+        w_open=weights.w_open,
+        w_crowd=weights.w_crowd,
+        variant_name=getattr(weights, 'variant_name', 'custom')
+    )
+    
+    # Convert user preferences to simple dict
+    user_preferences = None
     if user_prefs and user_prefs.tag_affinity:
-        def aff(ts: str) -> float:
-            for t in (ts.split("|") if ts else []):
-                if t in user_prefs.tag_affinity:
-                    return max(0.5, min(1.5, 1.0 + user_prefs.tag_affinity[t]))
-            return 1.0
-        df["pref_mult"] = df["types"].apply(aff)
-    else:
-        df["pref_mult"] = 1.0
-
-    w = weights.dict()
-    score = (
-        w["w_rating"] * df["rating_norm"] +
-        w["w_diversity"] * df["diversity_gain"] -
-        w["w_eta"] * df["eta_norm"] +
-        w["w_open"] * df["open_now"] -
-        w["w_crowd"] * df["crowd_proxy"]
-    ) * df["pref_mult"]
-    df["score"] = score.fillna(-1.0)
-
-    # emit
+        user_preferences = user_prefs.tag_affinity
+    
+    # Use new scoring module
+    from src.scoring import PlaceScorer
+    scorer = PlaceScorer(weights=scoring_weights, enable_telemetry=True)
+    scored_df = scorer.score_places(df, etas_sec, hex_df, user_preferences)
+    
+    # Convert back to ScoredPlace objects
     out: List[ScoredPlace] = []
-    for r in df.itertuples():
+    for r in scored_df.itertuples():
         out.append(ScoredPlace(
-            place=PlaceLite(id=r.id, name=r.name, primary_type=r.primary, types=r.types.split("|") if r.types else [],
-                            lat=r.lat, lng=r.lng, rating=None if math.isnan(r.rating) else float(r.rating),
-                            user_ratings_total=int(r.nratings), price_level=None, is_open_now=bool(r.open_now), maps_url=None),
-            eta_sec=0 if math.isnan(r.eta) else int(r.eta),
-            cluster_id=None, cluster_label=None,
+            place=PlaceLite(
+                id=r.id,
+                name=r.name,
+                primary_type=r.primary,
+                types=r.types.split("|") if r.types else [],
+                lat=r.lat,
+                lng=r.lng,
+                rating=None if pd.isna(r.rating) else float(r.rating),
+                user_ratings_total=int(r.nratings) if hasattr(r, 'nratings') else 0,
+                price_level=None,
+                is_open_now=bool(r.open_now),
+                maps_url=None
+            ),
+            eta_sec=0 if pd.isna(r.eta) else int(r.eta),
+            cluster_id=None if r.cluster_id == -1 else int(r.cluster_id),
+            cluster_label=None,  # Will be filled by caller
             diversity_gain=float(r.diversity_gain),
-            crowd_proxy=float(r.crowd_proxy),
+            crowd_proxy=float(r.crowd_norm) if hasattr(r, 'crowd_norm') else 0.0,
             score=float(r.score),
         ))
+    
+    # Log telemetry summary
+    telemetry = scorer.get_telemetry()
+    if telemetry:
+        print(f"\n📊 Scoring Telemetry: {len(telemetry)} places scored with variant '{scoring_weights.variant_name}'")
+        # Show top 3 scores for debugging
+        top_3 = sorted(telemetry, key=lambda t: t.breakdown.final_score, reverse=True)[:3]
+        for i, t in enumerate(top_3, 1):
+            print(f"  {i}. {t.place_name}: score={t.breakdown.final_score:.3f} "
+                  f"(rating={t.breakdown.rating_score:.2f}, "
+                  f"diversity={t.breakdown.diversity_score:.2f}, "
+                  f"eta={t.breakdown.eta_score:.2f}, "
+                  f"open={t.breakdown.open_score:.2f}, "
+                  f"crowd=-{t.breakdown.crowd_score:.2f})")
+    
     return out
 
 # -----------------------------

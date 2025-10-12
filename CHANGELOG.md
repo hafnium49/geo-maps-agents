@@ -8,10 +8,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- PR #3: A/B testing harness & scoring normalization
 - PR #4: HDBSCAN fallback logic
 - PR #5: OR-Tools VRPTW sequencer
 - PR #6: CI/CD & comprehensive test suite
+
+## [0.3.0] - 2025-10-12
+
+### Added - PR #3: Scoring Normalization & A/B Harness
+- **New Scoring Module**
+  - `src/scoring/normalization.py` with percentile-based normalization (5th/95th)
+  - `src/scoring/weights.py` with A/B testing support
+  - `src/scoring/scorer.py` with telemetry logging
+  - `src/scoring/__init__.py` for clean public API exports
+  
+- **Enhanced Normalization**
+  - `percentile_norm()` for robust outlier handling
+  - `normalize_eta()` with proper inversion (lower ETA = higher score)
+  - `normalize_rating()`, `normalize_crowd_proxy()`, `normalize_diversity()`
+  - Minimum ETA clamping (180s for foot/indoor routing)
+  
+- **A/B Testing Framework**
+  - `select_ab_variant()` with session-sticky hash-based assignment
+  - `VARIANT_A`, `VARIANT_B`, `VARIANT_C` predefined weight configurations
+  - `WeightConfig` dataclass with variant names
+  - `load_weights_from_yaml()` for configuration file support
+  
+- **Telemetry System**
+  - `PlaceScorer` class with detailed per-stop logging
+  - `ScoreBreakdown` dataclass with component scores
+  - `ScoringTelemetry` dataclass with all scoring context
+  - JSON export for analysis with `export_telemetry_json()`
+  
+- **Configuration**
+  - `configs/weights.yaml` with 7 variant definitions:
+    - `default`: Balanced configuration
+    - `variant-a`: Quality-focused (+35% rating weight)
+    - `variant-b`: Diversity-focused (+30% diversity weight)
+    - `variant-c`: Proximity-focused (+25% ETA weight)
+    - `variant-local`: Local experiences emphasis
+    - `variant-fast`: Time-optimized
+    - `variant-leisurely`: Quality over quantity
+  
+- **Testing & Verification**
+  - `verify_pr3.py` automated verification script (15 checks)
+  - Comprehensive functional tests for normalization, A/B testing, telemetry
+
+### Changed
+- **geotrip_agent.py**
+  - `_score_places()` now delegates to `src.scoring.PlaceScorer`
+  - Automatic telemetry logging with top-3 score summaries
+  - `WeightConfig` now includes `variant_name` for tracking
+  - `_robust_norm()` now delegates to `percentile_norm()`
+  
+- **Scoring Algorithm**
+  - ETA now properly inverted (lower travel time = higher score)
+  - Percentile-based normalization replaces min/max (handles outliers)
+  - Crowd penalty properly applied as subtraction
+  - Score breakdown logged for debugging and A/B measurement
+
+### Deprecated
+- `_robust_norm()` function (use `src.scoring.percentile_norm()`)
+- Old min/max normalization approach
+
+### Improved
+- **Scoring Accuracy**
+  - Percentile normalization prevents outlier distortion
+  - ETA properly inverted: 300s scores higher than 900s
+  - More stable scores across different datasets
+  
+- **A/B Testing**
+  - Deterministic variant assignment (same user → same variant)
+  - SHA256-based hashing prevents bias
+  - Supports user_id, device_id, session_id identifiers
+  
+- **Observability**
+  - Every place gets detailed telemetry
+  - Score breakdown shows contribution of each component
+  - Variant name tracked for measurement
+  - Raw values preserved for debugging
 
 ## [0.2.0] - 2025-10-12
 

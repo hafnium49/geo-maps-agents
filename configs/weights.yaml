@@ -1,0 +1,72 @@
+# Scoring Weight Configurations for A/B Testing
+#
+# Each variant defines different scoring priorities for place selection.
+# Weights should sum to ~1.0 for interpretability.
+#
+# Components:
+#   w_rating: Quality score (normalized rating, 0-1)
+#   w_diversity: Variety/uniqueness score (0-1)
+#   w_eta: Travel time score (inverted: lower ETA = higher score, 0-1)
+#   w_open: Open-now bonus (0 or 1)
+#   w_crowd: Crowd penalty based on review count (0-1)
+
+# Default balanced configuration
+default:
+  w_rating: 0.30
+  w_diversity: 0.25
+  w_eta: 0.20
+  w_open: 0.15
+  w_crowd: 0.10
+
+# Variant A: Quality-focused
+# Emphasizes highly-rated places, good for users who prioritize best experiences
+variant-a:
+  w_rating: 0.35      # +5% emphasis on quality
+  w_diversity: 0.20   # -5% less variety
+  w_eta: 0.20
+  w_open: 0.15
+  w_crowd: 0.10
+
+# Variant B: Diversity-focused
+# Emphasizes variety and unique experiences, good for explorers
+variant-b:
+  w_rating: 0.25      # -5% less emphasis on rating
+  w_diversity: 0.30   # +5% more variety
+  w_eta: 0.20
+  w_open: 0.15
+  w_crowd: 0.10
+
+# Variant C: Proximity-focused
+# Emphasizes nearby places, good for time-constrained itineraries
+variant-c:
+  w_rating: 0.30
+  w_diversity: 0.25
+  w_eta: 0.25         # +5% emphasis on proximity
+  w_open: 0.15
+  w_crowd: 0.05       # -5% less crowd avoidance
+
+# Experimental variants for testing
+
+# Local-focused: Emphasizes less touristy, more local experiences
+variant-local:
+  w_rating: 0.25
+  w_diversity: 0.30
+  w_eta: 0.15
+  w_open: 0.15
+  w_crowd: 0.15       # Higher crowd penalty (avoid tourist traps)
+
+# Fast-paced: Optimized for fitting many stops in limited time
+variant-fast:
+  w_rating: 0.20
+  w_diversity: 0.20
+  w_eta: 0.35         # Strong emphasis on proximity
+  w_open: 0.20        # Must be open
+  w_crowd: 0.05
+
+# Leisurely: Quality over quantity, willing to travel for best experiences
+variant-leisurely:
+  w_rating: 0.40      # Very high quality emphasis
+  w_diversity: 0.25
+  w_eta: 0.10         # Willing to travel
+  w_open: 0.15
+  w_crowd: 0.10

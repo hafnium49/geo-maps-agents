@@ -231,7 +231,7 @@ def validate_matrix_request(request: MatrixRequest) -> None:
         batch_size = int(limits.max_elements ** 0.5)
         msg_parts.extend([
             f"  3. Reduce to {batch_size} origins and {batch_size} destinations",
-            f"  4. Batch your requests (process in chunks of {batch_size}×{batch_size})",
+            f"  4. Batch your requests (process in chunks of {batch_size}\u00D7{batch_size})",
             "  5. Pre-filter destinations to most relevant candidates",
         ])
         

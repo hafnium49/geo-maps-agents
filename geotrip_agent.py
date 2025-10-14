@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os, json, math, time, random, asyncio
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 from datetime import datetime, timedelta
 
 # Load environment variables from .env file
@@ -112,6 +112,8 @@ class OptimizationConfig(BaseModel):
     include_types: Optional[List[str]] = None
     exclude_types: Optional[List[str]] = None
     city_profile: Optional[str] = None  # "dense" | "sparse" | None
+    service_time_min: int = 35
+    fast_mode: bool = False
 
 class WeightConfig(BaseModel):
     w_rating: float = DEFAULT_WEIGHTS["w_rating"]
@@ -137,6 +139,9 @@ class PlaceLite(BaseModel):
     price_level: Optional[int] = None
     is_open_now: Optional[bool] = None
     maps_url: Optional[str] = None
+    current_opening_periods: Optional[List[Dict[str, Any]]] = None
+    regular_opening_periods: Optional[List[Dict[str, Any]]] = None
+    secondary_opening_periods: Optional[List[Dict[str, Any]]] = None
 
 class ClusterInfo(BaseModel):
     cluster_id: int
@@ -163,6 +168,7 @@ class DayStop(BaseModel):
 class ItineraryDay(BaseModel):
     date_iso: str
     stops: List[DayStop]
+    available_stop_ids: Optional[List[str]] = None
 
 class ItineraryOutput(BaseModel):
     objective: str
@@ -174,6 +180,27 @@ class ItineraryOutput(BaseModel):
 # -----------------------------
 # Utilities
 # -----------------------------
+
+
+def _flatten_periods(hours: Any) -> Optional[List[Dict[str, Any]]]:
+    """Normalize opening hours structures from Places API to a list of periods."""
+
+    if not hours:
+        return None
+
+    # Secondary hours arrive as a list of OpeningHours objects; flatten their periods
+    if isinstance(hours, list):
+        periods: List[Dict[str, Any]] = []
+        for entry in hours:
+            if isinstance(entry, dict):
+                periods.extend(entry.get("periods", []) or [])
+        return periods or None
+
+    if isinstance(hours, dict):
+        periods = hours.get("periods")
+        return periods or None
+
+    return None
 
 def _fieldmask(header_fields: List[str]) -> Dict[str, str]:
     """Legacy helper - prefer using get_fieldmask_header from src.tools.fields"""
@@ -290,6 +317,9 @@ async def place_details(place_id: str, language: str="en") -> PlaceLite:
     url = f"{PLACES_BASE}/places/{place_id}"
     data = await _http_get_json(url, headers)
     loc = data.get("location", {})
+    current_hours = data.get("currentOpeningHours") or {}
+    regular_hours = data.get("regularOpeningHours") or {}
+    secondary_hours = data.get("currentSecondaryOpeningHours") or []
     return PlaceLite(
         id=data["id"],
         name=data["displayName"]["text"],
@@ -302,6 +332,9 @@ async def place_details(place_id: str, language: str="en") -> PlaceLite:
         price_level=data.get("priceLevel"),
         is_open_now=(data.get("currentOpeningHours", {}) or {}).get("openNow"),
         maps_url=data.get("googleMapsUri"),
+        current_opening_periods=_flatten_periods(current_hours),
+        regular_opening_periods=_flatten_periods(regular_hours),
+        secondary_opening_periods=_flatten_periods(secondary_hours),
     )
 
 def _matrix_limit(mode: str, routing_pref: str) -> int:
@@ -493,10 +526,12 @@ def _score_places(places: List[PlaceLite],
     from src.scoring import PlaceScorer
     scorer = PlaceScorer(weights=scoring_weights, enable_telemetry=True)
     scored_df = scorer.score_places(df, etas_sec, hex_df, user_preferences)
-    
+
     # Convert back to ScoredPlace objects
     out: List[ScoredPlace] = []
+    place_lookup = {p.id: p for p in places}
     for r in scored_df.itertuples():
+        original_place = place_lookup.get(r.id)
         out.append(ScoredPlace(
             place=PlaceLite(
                 id=r.id,
@@ -509,7 +544,10 @@ def _score_places(places: List[PlaceLite],
                 user_ratings_total=int(r.nratings) if hasattr(r, 'nratings') else 0,
                 price_level=None,
                 is_open_now=bool(r.open_now),
-                maps_url=None
+                maps_url=original_place.maps_url if original_place else None,
+                current_opening_periods=(original_place.current_opening_periods if original_place else None),
+                regular_opening_periods=(original_place.regular_opening_periods if original_place else None),
+                secondary_opening_periods=(original_place.secondary_opening_periods if original_place else None),
             ),
             eta_sec=0 if pd.isna(r.eta) else int(r.eta),
             cluster_id=None if r.cluster_id == -1 else int(r.cluster_id),
@@ -536,6 +574,116 @@ def _score_places(places: List[PlaceLite],
     return out
 
 # -----------------------------
+# Opening hours helpers
+# -----------------------------
+
+def _collect_open_periods(place: PlaceLite) -> List[Dict[str, Any]]:
+    """Collect the most precise opening periods available for a place."""
+
+    periods: List[Dict[str, Any]] = []
+
+    if place.current_opening_periods:
+        periods.extend(place.current_opening_periods)
+
+    if place.secondary_opening_periods:
+        periods.extend(place.secondary_opening_periods)
+
+    if not periods and place.regular_opening_periods:
+        periods.extend(place.regular_opening_periods)
+
+    return periods
+
+
+def _select_best_open_interval(
+    place: PlaceLite,
+    start_time: datetime,
+    end_time: datetime
+) -> Optional[Tuple[datetime, datetime]]:
+    """Select the opening interval that best overlaps the requested window."""
+
+    periods = _collect_open_periods(place)
+
+    if not periods:
+        # No schedule data – treat as fully available in the requested window.
+        return (start_time, end_time)
+
+    day_anchor = start_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = day_anchor - timedelta(days=(day_anchor.weekday() + 1) % 7)
+    candidate_bases = [week_start - timedelta(days=7), week_start, week_start + timedelta(days=7)]
+
+    intervals: List[Tuple[datetime, datetime]] = []
+    seen: Set[Tuple[datetime, datetime]] = set()
+
+    for base in candidate_bases:
+        for period in periods:
+            if not isinstance(period, dict):
+                continue
+            open_info = period.get("open", {}) or {}
+            close_info = period.get("close", {}) or {}
+            open_time_str = open_info.get("time")
+            if open_time_str is None:
+                continue
+
+            try:
+                open_day = int(open_info.get("day", 0))
+                open_hour = int(open_time_str[:2])
+                open_min = int(open_time_str[2:4])
+            except (TypeError, ValueError):
+                continue
+
+            open_dt = base + timedelta(days=open_day, hours=open_hour, minutes=open_min)
+
+            if close_info and close_info.get("time") is not None:
+                close_time_str = close_info.get("time")
+                try:
+                    close_day = int(close_info.get("day", open_day))
+                    close_hour = int(close_time_str[:2])
+                    close_min = int(close_time_str[2:4])
+                except (TypeError, ValueError):
+                    close_day = open_day
+                    close_hour = open_hour
+                    close_min = open_min
+
+                close_dt = base + timedelta(days=close_day, hours=close_hour, minutes=close_min)
+
+                if close_day < open_day:
+                    close_dt += timedelta(days=7)
+                elif close_day == open_day and (close_hour * 60 + close_min) <= (open_hour * 60 + open_min):
+                    close_dt += timedelta(days=1)
+            else:
+                close_dt = open_dt + timedelta(hours=24)
+
+            if close_dt <= open_dt:
+                close_dt = open_dt + timedelta(hours=1)
+
+            key = (open_dt, close_dt)
+            if key in seen:
+                continue
+            seen.add(key)
+            intervals.append((open_dt, close_dt))
+
+    best_interval: Optional[Tuple[datetime, datetime]] = None
+    best_overlap = timedelta(0)
+
+    for raw_start, raw_end in intervals:
+        overlap_start = max(raw_start, start_time)
+        overlap_end = min(raw_end, end_time)
+        if overlap_end <= overlap_start:
+            continue
+
+        overlap_duration = overlap_end - overlap_start
+        if overlap_duration > best_overlap:
+            best_overlap = overlap_duration
+            best_interval = (overlap_start, overlap_end)
+
+    return best_interval
+
+
+def _format_time_range(start: datetime, end: datetime) -> str:
+    return f"{start.strftime('%H:%M')}–{end.strftime('%H:%M')}"
+
+
+# -----------------------------
 # OR-Tools: single-day TSP-TW
 # -----------------------------
 
@@ -559,10 +707,32 @@ def _sequence_single_day(
     Returns:
         ItineraryDay with optimized stop sequence
     """
+    start_time = datetime.fromisoformat(window.start_iso)
+    end_time = datetime.fromisoformat(window.end_iso)
+
     if len(stops) == 0:
-        start = datetime.fromisoformat(window.start_iso)
-        return ItineraryDay(date_iso=start.date().isoformat(), stops=[])
-    
+        return ItineraryDay(date_iso=start_time.date().isoformat(), stops=[], available_stop_ids=[])
+
+    window_map: Dict[str, Tuple[datetime, datetime]] = {}
+    filtered: List[ScoredPlace] = []
+    removed = 0
+
+    for s in stops:
+        interval = _select_best_open_interval(s.place, start_time, end_time)
+        if interval is None:
+            removed += 1
+            continue
+        window_map[s.place.id] = interval
+        filtered.append(s)
+
+    if removed:
+        print(
+            f"\nℹ️ Hours filter: removed {removed} place(s) that are closed during the requested window"
+        )
+
+    if len(filtered) == 0:
+        return ItineraryDay(date_iso=start_time.date().isoformat(), stops=[], available_stop_ids=[])
+
     # Convert stops to DataFrame for solver
     candidates = pd.DataFrame([
         {
@@ -575,13 +745,13 @@ def _sequence_single_day(
             'open_now': s.place.is_open_now,
             'diversity_gain': s.diversity_gain,
             'cluster_label': s.cluster_label,
+            'open_time': window_map[s.place.id][0],
+            'close_time': window_map[s.place.id][1],
+            'maps_url': s.place.maps_url,
         }
-        for s in stops
+        for s in filtered
     ])
-    
-    start_time = datetime.fromisoformat(window.start_iso)
-    end_time = datetime.fromisoformat(window.end_iso)
-    
+
     # Configure solver
     config = VRPTWConfig(
         service_time_min=service_time_min,
@@ -619,8 +789,12 @@ def _sequence_single_day(
     day_stops = []
     for stop_dict in result.stops:
         # Find original ScoredPlace for additional info
-        original_stop = next((s for s in stops if s.place.id == stop_dict['place_id']), None)
-        
+        original_stop = next((s for s in filtered if s.place.id == stop_dict['place_id']), None)
+        available_window = window_map.get(stop_dict['place_id'])
+        reason = stop_dict['reason']
+        if available_window and 'window=' not in reason:
+            reason = f"{reason}; window={_format_time_range(available_window[0], available_window[1])}"
+
         day_stops.append(DayStop(
             place=PlaceLite(
                 id=stop_dict['place_id'],
@@ -633,15 +807,22 @@ def _sequence_single_day(
                 user_ratings_total=original_stop.place.user_ratings_total if original_stop else None,
                 price_level=original_stop.place.price_level if original_stop else None,
                 is_open_now=stop_dict.get('open_now', None),
-                maps_url=original_stop.place.maps_url if original_stop else None,
+                maps_url=stop_dict.get('maps_url') or (original_stop.place.maps_url if original_stop else None),
+                current_opening_periods=(original_stop.place.current_opening_periods if original_stop else None),
+                regular_opening_periods=(original_stop.place.regular_opening_periods if original_stop else None),
+                secondary_opening_periods=(original_stop.place.secondary_opening_periods if original_stop else None),
             ),
             arrival_iso=stop_dict['arrival_time'].isoformat(timespec="seconds"),
             depart_iso=stop_dict['departure_time'].isoformat(timespec="seconds"),
             eta_sec=stop_dict.get('eta', 0),
-            reason=stop_dict['reason']
+            reason=reason
         ))
-    
-    return ItineraryDay(date_iso=start_time.date().isoformat(), stops=day_stops)
+
+    return ItineraryDay(
+        date_iso=start_time.date().isoformat(),
+        stops=day_stops,
+        available_stop_ids=list(window_map.keys())
+    )
 
 # -----------------------------
 # deck.gl HTML (Google Maps JS)
@@ -652,8 +833,16 @@ def _render_deckgl_html(anchor: Location, scored: List[ScoredPlace], clusters: L
     Returns a small self-contained HTML string that shows POIs + cluster centroids over a Google Map with deck.gl overlay.
     """
     pts = [
-        {"name": s.place.name, "lat": s.place.lat, "lng": s.place.lng, "score": round(s.score,2),
-         "eta": s.eta_sec, "cluster": s.cluster_label or ""}
+        {
+            "id": s.place.id,
+            "name": s.place.name,
+            "lat": s.place.lat,
+            "lng": s.place.lng,
+            "score": round(float(s.score), 3),
+            "eta": s.eta_sec,
+            "cluster": s.cluster_label or "",
+            "url": s.place.maps_url,
+        }
         for s in scored
     ]
     cents = [{"lat": c.centroid.lat, "lng": c.centroid.lng, "label": c.label} for c in clusters]
@@ -679,7 +868,22 @@ def _render_deckgl_html(anchor: Location, scored: List[ScoredPlace], clusters: L
             data: {json.dumps(pts)},
             getPosition: d => [d.lng, d.lat],
             getRadius: d => 15 + (d.score*10),
-            pickable: true
+            pickable: true,
+            onClick: info => {{
+              if (info.object && info.object.url) {{
+                window.open(info.object.url, '_blank');
+              }}
+            }},
+            getTooltip: info => {{
+              if (!info.object) return null;
+              const etaSec = info.object.eta || 0;
+              const etaMin = Math.round(etaSec / 60);
+              const etaText = etaSec ? (etaMin >= 1 ? `${{etaMin}} min` : '<1 min') : 'n/a';
+              const score = typeof info.object.score === 'number'
+                ? info.object.score.toFixed(2)
+                : info.object.score;
+              return `${{info.object.name}} · ETA ${{etaText}} · Score ${{score}}`;
+            }}
           }}),
           new deck.TextLayer({{
             id: 'centroids',
@@ -778,9 +982,14 @@ async def spatial_context_and_scoring(anchor: Location,
 
     # shortlist top N feasible in window
     top = sorted(scored, key=lambda x: x.score, reverse=True)[: min(30, len(scored))]
-    day = _sequence_single_day(top, anchor, window)
+    service_time = getattr(cfg, "service_time_min", 35)
+    fast_mode = getattr(cfg, "fast_mode", False)
+    day = _sequence_single_day(top, anchor, window, use_ortools=not fast_mode, service_time_min=service_time)
 
-    html = _render_deckgl_html(anchor, top, clusters)
+    available_ids = set(day.available_stop_ids or [])
+    filtered_for_map = [s for s in top if s.place.id in available_ids] if available_ids else top
+
+    html = _render_deckgl_html(anchor, filtered_for_map, clusters)
 
     return ItineraryOutput(
         objective="Personalized, time-window-aware plan",
@@ -855,7 +1064,7 @@ Return FinalOutput.
 # Example entrypoint
 # -----------------------------
 
-async def optimize_itinerary_example():
+async def optimize_itinerary_example(fast_mode: bool = False, service_time: int = 35):
     anchor = Location(lat=35.6895, lng=139.6917)  # Tokyo Station-ish
     window = TimeWindow(
         start_iso=(datetime.now().replace(hour=13, minute=0, second=0, microsecond=0)).isoformat(),
@@ -863,7 +1072,9 @@ async def optimize_itinerary_example():
     )
     cfg = OptimizationConfig(
         h3_res=9, cluster_min_size=12, mode="TRANSIT", routing_preference="TRAFFIC_AWARE",
-        language="en", include_types=["restaurant","cafe","museum","tourist_attraction"], max_candidates=100
+        language="en", include_types=["restaurant","cafe","museum","tourist_attraction"], max_candidates=100,
+        service_time_min=service_time,
+        fast_mode=fast_mode,
     )
     weights = WeightConfig()
     query = "best local eats and culture spots"
@@ -884,4 +1095,21 @@ async def optimize_itinerary_example():
     print(json.dumps(final.itinerary.dict(), ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
-    asyncio.run(optimize_itinerary_example())
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run the GeoTrip itinerary example")
+    parser.add_argument("--fast", action="store_true", help="Use greedy sequencing instead of OR-Tools")
+    parser.add_argument(
+        "--service-time",
+        type=int,
+        default=35,
+        help="Minutes to spend at each stop (30–40 recommended)",
+    )
+    args = parser.parse_args()
+
+    asyncio.run(
+        optimize_itinerary_example(
+            fast_mode=args.fast,
+            service_time=max(15, args.service_time),
+        )
+    )

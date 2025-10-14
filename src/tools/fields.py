@@ -44,6 +44,10 @@ PLACES_HOURS_FIELDS = [
     "places.currentOpeningHours.openNow",
     "places.currentOpeningHours.periods",
     "places.currentOpeningHours.weekdayDescriptions",
+    "places.regularOpeningHours.periods",
+    "places.regularOpeningHours.weekdayDescriptions",
+    "places.currentSecondaryOpeningHours.periods",
+    "places.currentSecondaryOpeningHours.weekdayDescriptions",
 ]
 
 # Business status (operational vs permanently closed)

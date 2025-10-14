@@ -14,16 +14,16 @@ cp .env.sample .env
 # Edit .env and add your API keys
 
 # 4. Verify installation
-uv run verify_pr2.py
+uv run python docs/prs/verify_pr2.py
 ```
 
 ## Daily Development
 
 ### Running Scripts
 ```bash
-uv run verify_pr2.py          # Verify PR #2 implementation
-uv run geotrip_agent.py        # Run main agent
-uv run python -m src.routing   # Run specific module
+uv run python docs/prs/verify_pr2.py   # Verify PR #2 implementation
+uv run geotrip_agent.py                 # Run main agent
+uv run python -m src.routing            # Run specific module
 ```
 
 ### Testing
@@ -55,7 +55,7 @@ uv pip freeze                                    # Show exact versions
 ### Verification
 ```bash
 # Quick verification of PR #2
-uv run verify_pr2.py
+uv run python docs/prs/verify_pr2.py
 
 # Expected output:
 # 🎉 All checks passed! (10/10)
@@ -94,7 +94,7 @@ uv pip install -e .
 
 ### Run PR Verification
 ```bash
-uv run verify_pr2.py
+uv run python docs/prs/verify_pr2.py
 # Should show: 🎉 All checks passed! (10/10)
 ```
 

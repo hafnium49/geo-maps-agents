@@ -42,7 +42,7 @@ cp .env.sample .env
 
 ```bash
 # Run PR #2 verification tests
-uv run verify_pr2.py
+uv run python docs/prs/verify_pr2.py
 
 # You should see: 🎉 All checks passed! (10/10)
 ```
@@ -53,7 +53,7 @@ uv run verify_pr2.py
 
 ```bash
 # Run any Python script with uv
-uv run verify_pr2.py
+uv run python docs/prs/verify_pr2.py
 uv run geotrip_agent.py
 
 # Run pytest
@@ -126,7 +126,7 @@ Edit code in `src/` or `geotrip_agent.py`.
 ### 3. Run Tests
 
 ```bash
-uv run verify_pr2.py
+uv run python docs/prs/verify_pr2.py
 # or
 uv run pytest
 ```
@@ -142,7 +142,7 @@ uv run ruff check --fix .
 
 ```bash
 # Run all checks
-uv run verify_pr2.py
+uv run python docs/prs/verify_pr2.py
 
 # Run specific tests
 uv run pytest tests/test_routing.py -v
@@ -179,7 +179,7 @@ uv pip install -e ".[dev]"
 **Solution**: Ensure you're running scripts from the project root:
 ```bash
 cd /path/to/geo-maps-agents
-uv run verify_pr2.py
+uv run python docs/prs/verify_pr2.py
 ```
 
 ## Dependencies
@@ -213,7 +213,7 @@ After setting up your development environment:
 5. 🔜 PR #5: OR-Tools VRPTW Sequencer
 6. 🔜 PR #6: CI & Testing Infrastructure
 
-Run `uv run verify_pr2.py` to verify your setup is working correctly!
+Run `uv run python docs/prs/verify_pr2.py` to verify your setup is working correctly!
 
 ## Additional Resources
 

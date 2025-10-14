@@ -113,6 +113,18 @@ def _seconds_to_time(seconds: int, day_start: datetime) -> datetime:
     return day_start + timedelta(seconds=seconds)
 
 
+def _ensure_datetime(value):
+    if isinstance(value, pd.Timestamp):
+        return value.to_pydatetime()
+    return value
+
+
+def _format_window(open_time: Optional[datetime], close_time: Optional[datetime]) -> Optional[str]:
+    if not open_time or not close_time:
+        return None
+    return f"{open_time.strftime('%H:%M')}–{close_time.strftime('%H:%M')}"
+
+
 def _build_distance_matrix(
     anchor_lat: float,
     anchor_lng: float,
@@ -204,10 +216,15 @@ def _build_time_windows(
     # Candidate time windows
     for _, row in candidates.iterrows():
         # Check if place has opening hours
-        if 'open_time' in row and pd.notna(row['open_time']):
-            open_sec = _time_to_seconds(row['open_time'], day_start)
-            close_sec = _time_to_seconds(row['close_time'], day_start)
-            
+        open_value = row.get('open_time', None)
+        close_value = row.get('close_time', None)
+        open_dt = _ensure_datetime(open_value) if pd.notna(open_value) else None
+        close_dt = _ensure_datetime(close_value) if pd.notna(close_value) else None
+
+        if open_dt and close_dt:
+            open_sec = _time_to_seconds(open_dt, day_start)
+            close_sec = _time_to_seconds(close_dt, day_start)
+
             # Constrain to tour window
             earliest = max(start_sec, open_sec)
             latest = min(end_sec, close_sec)
@@ -401,10 +418,28 @@ def solve_vrptw(
                 if node_index > 0:  # Skip depot
                     candidate_idx = node_index - 1
                     row = candidates.iloc[candidate_idx]
-                    
+
                     arrival = _seconds_to_time(time_sec, day_start)
                     departure = arrival + timedelta(seconds=service_time_sec)
-                    
+
+                    open_time = _ensure_datetime(row.get('open_time', None)) if 'open_time' in row else None
+                    close_time = _ensure_datetime(row.get('close_time', None)) if 'close_time' in row else None
+                    open_now_value = row.get('open_now', None)
+                    if isinstance(open_now_value, (int, float)):
+                        open_now_value = bool(open_now_value)
+                    elif pd.isna(open_now_value):
+                        open_now_value = None
+
+                    window_str = _format_window(open_time, close_time)
+                    reason = f"Score={row['score']:.2f}; VRPTW optimal"
+                    if window_str:
+                        reason += f"; window={window_str}"
+
+                    eta_value = row.get('eta', 0)
+                    eta_seconds = 0
+                    if isinstance(eta_value, (int, float)) and not pd.isna(eta_value):
+                        eta_seconds = int(eta_value)
+
                     stops.append({
                         'place_id': str(row['id']),
                         'place_name': str(row['name']),
@@ -414,7 +449,12 @@ def solve_vrptw(
                         'arrival_time': arrival,
                         'departure_time': departure,
                         'service_time_min': config.service_time_min,
-                        'reason': f"Score={row['score']:.2f}; VRPTW optimal"
+                        'reason': reason,
+                        'open_now': open_now_value,
+                        'open_time': open_time,
+                        'close_time': close_time,
+                        'maps_url': row.get('maps_url'),
+                        'eta': eta_seconds,
                     })
                 
                 previous_index = index
@@ -514,7 +554,12 @@ def solve_vrptw_with_fallback(
                 'arrival_time': s.arrival_time,
                 'departure_time': s.departure_time,
                 'service_time_min': s.service_time_min,
-                'reason': s.reason + " (forced greedy)"
+                'reason': s.reason + " (forced greedy)",
+                'open_now': s.open_now,
+                'open_time': s.open_time,
+                'close_time': s.close_time,
+                'maps_url': s.maps_url,
+                'eta': s.eta_from_anchor_sec,
             }
             for s in greedy_result.stops
         ]
@@ -561,7 +606,12 @@ def solve_vrptw_with_fallback(
                 'arrival_time': s.arrival_time,
                 'departure_time': s.departure_time,
                 'service_time_min': s.service_time_min,
-                'reason': s.reason + f" (fallback: {result.fallback_reason})"
+                'reason': s.reason + f" (fallback: {result.fallback_reason})",
+                'open_now': s.open_now,
+                'open_time': s.open_time,
+                'close_time': s.close_time,
+                'maps_url': s.maps_url,
+                'eta': s.eta_from_anchor_sec,
             }
             for s in greedy_result.stops
         ]

@@ -20,10 +20,22 @@ from typing import List, Optional
 import pandas as pd
 
 
+def _to_datetime(value):
+    if isinstance(value, pd.Timestamp):
+        return value.to_pydatetime()
+    return value
+
+
+def _format_window(open_time: Optional[datetime], close_time: Optional[datetime]) -> Optional[str]:
+    if not open_time or not close_time:
+        return None
+    return f"{open_time.strftime('%H:%M')}–{close_time.strftime('%H:%M')}"
+
+
 @dataclass
 class Stop:
     """A single stop in the itinerary."""
-    
+
     place_id: str
     place_name: str
     lat: float
@@ -34,6 +46,10 @@ class Stop:
     departure_time: datetime
     service_time_min: int
     reason: Optional[str] = None
+    open_now: Optional[bool] = None
+    open_time: Optional[datetime] = None
+    close_time: Optional[datetime] = None
+    maps_url: Optional[str] = None
 
 
 @dataclass
@@ -90,16 +106,33 @@ def greedy_sequence(
         # Estimate travel time from anchor (simplified - doesn't account for actual route)
         travel_time_sec = max(min_travel_time_sec, int(row['eta']))
         arrival = current_time + timedelta(seconds=travel_time_sec)
-        
+
         # Service time at this stop
         service_time_sec = service_time_min * 60
         departure = arrival + timedelta(seconds=service_time_sec)
-        
+
+        open_time_raw = row.get('open_time', None)
+        close_time_raw = row.get('close_time', None)
+        open_time = _to_datetime(open_time_raw) if pd.notna(open_time_raw) else None
+        close_time = _to_datetime(close_time_raw) if pd.notna(close_time_raw) else None
+
+        open_now_value = row.get('open_now', None)
+        if isinstance(open_now_value, (int, float)):
+            open_now_value = bool(open_now_value)
+        elif pd.isna(open_now_value):
+            open_now_value = None
+
+        window_str = _format_window(open_time, close_time)
+        reason_parts = [f"Score={row['score']:.2f}"]
+        if window_str:
+            reason_parts.append(f"window={window_str}")
+        reason_parts.append("greedy selection")
+
         # Check if we have time
         if departure > end_time:
             num_skipped += 1
             continue
-        
+
         # Add stop
         stops.append(Stop(
             place_id=str(row['id']),
@@ -111,7 +144,11 @@ def greedy_sequence(
             arrival_time=arrival,
             departure_time=departure,
             service_time_min=service_time_min,
-            reason=f"Score={row['score']:.2f}; greedy selection"
+            reason="; ".join(reason_parts),
+            open_now=open_now_value,
+            open_time=open_time,
+            close_time=close_time,
+            maps_url=row.get('maps_url')
         ))
         
         total_travel_time += travel_time_sec

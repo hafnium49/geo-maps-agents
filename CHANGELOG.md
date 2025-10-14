@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Project Organization**: Moved PR documentation to `docs/prs/` directory
+  - All PR completion reports, summaries, and quick references
+  - All verification scripts (`verify_pr*.py`)
+  - Setup and utility scripts (`commit_pr1.sh`, `SETUP_COMPLETE.md`)
+  - Added `docs/prs/README.md` to explain the archive structure
+  - Updated references in `CHANGELOG.md`, `DEV_SETUP.md`, and `QUICK_DEV_COMMANDS.md`
+
 ### Planned
 - Future enhancements and improvements
 
@@ -206,7 +214,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
-- **Verification Script** (`verify_pr5.py`):
+- **Verification Script** (`docs/prs/verify_pr5.py`):
   - 6 comprehensive verification checks (all passing)
   - File structure validation
   - Import checks for OR-Tools, greedy, vrptw modules
@@ -217,14 +225,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
-- **PR5_SUMMARY.md**: Comprehensive technical overview
+- **docs/prs/PR5_SUMMARY.md**: Comprehensive technical overview
   - Problem statement and motivation
   - Architecture and algorithm details
   - OR-Tools VRPTW formulation
   - Usage examples and integration patterns
   - Performance comparison and benchmarks
   
-- **QUICK_REFERENCE_PR5.md**: Quick reference guide
+- **docs/prs/QUICK_REFERENCE_PR5.md**: Quick reference guide
   - API documentation for all functions
   - Common usage patterns and recipes
   - Configuration options and presets
@@ -281,7 +289,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Configuration tracking (actual config used after refitting)
   
 - **Testing & Verification**
-  - `verify_pr4.py` automated verification script (7 checks)
+  - `docs/prs/verify_pr4.py` automated verification script (7 checks)
   - Degenerate case handling tests
   - Over-clustering detection tests
   - Successful clustering tests
@@ -289,8 +297,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integration tests with geotrip_agent.py
   
 - **Documentation**
-  - `PR4_SUMMARY.md` comprehensive technical overview
-  - `QUICK_REFERENCE_PR4.md` usage guide and API reference
+  - `docs/prs/PR4_SUMMARY.md` comprehensive technical overview
+  - `docs/prs/QUICK_REFERENCE_PR4.md` usage guide and API reference
 
 ### Changed
 - **geotrip_agent.py**
@@ -371,7 +379,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `variant-leisurely`: Quality over quantity
   
 - **Testing & Verification**
-  - `verify_pr3.py` automated verification script (15 checks)
+  - `docs/prs/verify_pr3.py` automated verification script (15 checks)
   - Comprehensive functional tests for normalization, A/B testing, telemetry
 
 ### Changed
@@ -434,8 +442,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cache management with `clear_cache()`
   
 - **Testing & Verification**
-  - `verify_pr2.py` automated verification script (10 checks)
-  - `PR2_SUMMARY.md` comprehensive PR documentation
+  - `docs/prs/verify_pr2.py` automated verification script (10 checks)
+  - `docs/prs/PR2_SUMMARY.md` comprehensive PR documentation
 
 ### Changed
 - **geotrip_agent.py**
@@ -496,8 +504,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **ToS Guardrails section** (Google Maps Platform compliance)
     - Architecture overview
     - Development guide
-  - `PR1_SUMMARY.md` detailed PR documentation
-  - `verify_pr1.py` automated verification script
+  - `docs/prs/PR1_SUMMARY.md` detailed PR documentation
+  - `docs/prs/verify_pr1.py` automated verification script
   
 - **Project Structure**
   - `src/` source package directory
@@ -566,7 +574,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 4. **Verify installation:**
    ```bash
-   python verify_pr1.py
+   python docs/prs/verify_pr1.py
    ```
 
 ## Contribution Guidelines

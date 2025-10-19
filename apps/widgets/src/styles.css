@@ -1,0 +1,94 @@
+.geo-timeline {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1b1b1b;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.18);
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.geo-timeline header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.geo-timeline h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.geo-timeline ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.geo-timeline li {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.geo-timeline .time-range {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.geo-timeline .details .name {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.geo-timeline .details .meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.geo-timeline .details .meta .reason {
+  color: #0f172a;
+}
+
+.geo-timeline a {
+  color: #0b63f3;
+  text-decoration: none;
+}
+
+.geo-widget {
+  position: relative;
+  width: 100%;
+  height: 360px;
+}
+
+.geo-widget-legend {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.geo-widget-error {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.15);
+  color: #7f1d1d;
+  font-size: 0.9rem;
+}

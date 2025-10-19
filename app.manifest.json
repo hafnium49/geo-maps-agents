@@ -1,0 +1,11 @@
+{
+  "name": "GeoTrip Planner",
+  "description": "Trip planning with Google Maps, H3 clustering, and time-windowed routing.",
+  "version": "1.0.0",
+  "actions": [
+    { "name": "search_places", "path": "/actions/search_places", "method": "POST" },
+    { "name": "optimize_itinerary", "path": "/actions/optimize_itinerary", "method": "POST" },
+    { "name": "details", "path": "/actions/details", "method": "POST" }
+  ],
+  "authentication": { "type": "none" }
+}

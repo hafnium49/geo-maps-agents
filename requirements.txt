@@ -1,6 +1,7 @@
 # Core dependencies - pinned versions for reproducibility
 openai-agents>=0.3.3,<0.4.0
 httpx>=0.27.0,<0.28.0
+fastapi>=0.111.0,<0.112.0
 h3>=3.7.6,<4.0.0
 hdbscan>=0.8.33,<0.9.0
 ortools>=9.10.0,<10.0.0

@@ -1,6 +1,16 @@
 # geo-maps-agents
 
-This repository hosts a production-flavored OpenAI Agents SDK reference implementation for orchestrating multi-stage geospatial trip planning. The core entry point is [`geotrip_agent.py`](geotrip_agent.py), which wires together:
+This repository now ships two complementary experiences for geospatial trip planning:
+
+- A production-flavored OpenAI **Apps SDK (ChatGPT App)** built on a FastAPI MCP server (`apps/mcp_server`) with deck.gl + Google Maps widgets compiled from `apps/widgets`.
+- The original OpenAI **Agents SDK** reference implementation (`geotrip_agent.py`) which demonstrates multi-agent orchestration.
+
+The MCP server exposes three actions (`search_places`, `optimize_itinerary`, `details`) that the ChatGPT UI can call directly. It reuses the battle-tested scoring, routing, and clustering modules and emits structured JSON plus widget metadata so the ChatGPT App can render an interactive itinerary composed of:
+
+- Google Maps-compliant deck.gl overlays for H3 heatmaps, clustered POIs, isochrone rings, and animated route playback.
+- A rich day timeline widget that mirrors the sequencing output from the VRPTW solver.
+
+The legacy Agents SDK entry point [`geotrip_agent.py`](geotrip_agent.py) continues to orchestrate:
 
 - A triage/orchestrator agent coordinating dedicated data, spatial, and UX agents.
 - Google Places Text Search and Details (New) calls with FieldMasks for cost-aware discovery.
@@ -48,7 +58,22 @@ cp .env.sample .env
 - Places API (New)
 - Routes API
 
-### 3. Run Example
+### 3. Run the ChatGPT App MCP Server
+
+```bash
+# Build the visualization widgets (only when assets change)
+cd apps/widgets
+pnpm install  # or npm install / yarn install
+pnpm build    # outputs assets to ../mcp_server/assets/
+
+# Launch the MCP server
+cd ../..
+uvicorn apps.mcp_server.main:app --host 0.0.0.0 --port 5050
+```
+
+In ChatGPT, add a custom app that points to `http://localhost:5050`, upload `app.manifest.json`, and test the `search_places`, `optimize_itinerary`, and `details` actions. The ChatGPT UI will stream the returned widgets from `/assets`.
+
+### 4. Run the legacy Agents SDK example
 
 ```bash
 # Run the Tokyo Station example (13:00–18:00, transit mode)
@@ -60,7 +85,7 @@ python geotrip_agent.py
 - Console shows: "N stops scheduled; M clusters found"
 - Per-stop details with score breakdown and reasoning
 
-### 4. Open Map Visualization
+### 5. Open Map Visualization
 
 ```bash
 # Open the generated map in your browser

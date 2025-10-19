@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
     "openai-agents>=0.3.3,<0.4.0",
     "httpx>=0.27.0",
+    "fastapi>=0.111.0,<0.112.0",
     "h3>=3.7.6,<4.0.0",
     "hdbscan>=0.8.33",
     "ortools>=9.10.0",

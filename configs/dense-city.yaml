@@ -7,8 +7,14 @@ description: "High POI density, excellent transit, fine-grained spatial analysis
 # H3 Hexagon Resolution
 # Resolution 9: ~175m edge, ~0.1 km² area (city block scale)
 h3:
-  primary_resolution: 9
-  fallback_resolution: 8  # Wider corridors if res 9 too sparse
+  base_res_core: 9
+  base_res_belt: 8
+  refine_res: 10
+
+refine:
+  top_pct: 12
+  metric: localness
+  core_radius_ratio: 0.65
 
 # HDBSCAN Clustering Parameters
 clustering:
@@ -22,6 +28,7 @@ clustering:
 search:
   default_radius_m: 4000     # 4km search radius
   max_candidates: 120        # Fetch up to 120 places
+  language: en
   
 # Routing Defaults
 routing:

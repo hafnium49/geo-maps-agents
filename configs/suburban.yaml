@@ -7,8 +7,14 @@ description: "Medium POI density, car-dependent, wider spatial grouping"
 # H3 Hexagon Resolution
 # Resolution 8: ~461m edge, ~0.74 km² area (neighborhood scale)
 h3:
-  primary_resolution: 8
-  fallback_resolution: 7  # Even wider if needed
+  base_res_core: 8
+  base_res_belt: 7
+  refine_res: 10
+
+refine:
+  top_pct: 8
+  metric: density
+  core_radius_ratio: 0.55
 
 # HDBSCAN Clustering Parameters
 clustering:
@@ -22,6 +28,7 @@ clustering:
 search:
   default_radius_m: 8000     # 8km search radius (car-friendly)
   max_candidates: 100        # Slightly fewer total options
+  language: en
   
 # Routing Defaults
 routing:

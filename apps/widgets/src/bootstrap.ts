@@ -5,6 +5,8 @@ import PoiClusters from './PoiClusters';
 import IsochroneRings from './IsochroneRings';
 import RoutePlayback from './RoutePlayback';
 import DayTimeline from './DayTimeline';
+import RefineOutlines from './RefineOutlines';
+import RefineDots from './RefineDots';
 import './styles.css';
 
 type WidgetFactory = (element: HTMLElement, props: any) => () => void;
@@ -29,6 +31,8 @@ const registry: Record<string, WidgetFactory> = {
   'geo.isochroneRings': render((props) => <IsochroneRings {...props} />),
   'geo.routePlayback': render((props) => <RoutePlayback {...props} />),
   'geo.dayTimeline': render((props) => <DayTimeline {...props} />),
+  'geo.refineOutlines': render((props) => <RefineOutlines {...props} />),
+  'geo.refineDots': render((props) => <RefineDots {...props} />),
 };
 
 window.geoWidgets = { ...(window.geoWidgets ?? {}), ...registry };

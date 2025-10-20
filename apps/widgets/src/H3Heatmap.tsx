@@ -2,17 +2,32 @@ import { H3HexagonLayer } from '@deck.gl/layers';
 import { useMemo } from 'react';
 import DeckGoogleMap from './common/DeckGoogleMap';
 
-export type HexBin = {
-  id: string;
-  value: number;
+type HeatmapDatum = {
+  id?: string;
+  hexId?: string;
+  score?: number;
+  value?: number;
+  localness?: number;
+  ring?: string;
 };
 
 export type H3HeatmapProps = {
   center: { lat: number; lng: number };
-  hexes: HexBin[];
+  hexes: HeatmapDatum[];
   legend?: string;
   googleMapsApiKey?: string;
 };
+
+function resolveHexId(hex: HeatmapDatum): string {
+  return hex.hexId ?? hex.id ?? '';
+}
+
+function resolveValue(hex: HeatmapDatum): number {
+  if (typeof hex.score === 'number') return hex.score;
+  if (typeof hex.value === 'number') return hex.value;
+  if (typeof hex.localness === 'number') return hex.localness;
+  return 0;
+}
 
 export default function H3Heatmap({ center, hexes, legend, googleMapsApiKey }: H3HeatmapProps) {
   const layer = useMemo(() => {
@@ -22,13 +37,19 @@ export default function H3Heatmap({ center, hexes, legend, googleMapsApiKey }: H
       pickable: true,
       extruded: false,
       filled: true,
-      getHexagon: (d: HexBin) => d.id,
-      getFillColor: (d: HexBin) => {
-        const normalized = Math.max(0, Math.min(1, d.value));
-        const intensity = Math.floor(normalized * 255);
-        return [255, 120 - intensity * 0.3, 40, 180];
+      opacity: 0.85,
+      getHexagon: (d: HeatmapDatum) => resolveHexId(d),
+      getFillColor: (d: HeatmapDatum) => {
+        const raw = Math.max(0, Math.min(1, resolveValue(d)));
+        const base = Math.floor(raw * 255);
+        const ring = d.ring ?? 'core';
+        const alpha = ring === 'belt' ? 140 : 190;
+        return [255 - base * 0.4, 90 + base * 0.2, 60 + base * 0.1, alpha];
       },
-      getLineColor: [255, 255, 255, 80],
+      getLineColor: (d: HeatmapDatum) => {
+        const ring = d.ring ?? 'core';
+        return ring === 'belt' ? [255, 255, 255, 40] : [255, 255, 255, 100];
+      },
       lineWidthMinPixels: 1,
     });
   }, [hexes]);

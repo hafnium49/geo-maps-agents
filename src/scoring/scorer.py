@@ -5,10 +5,11 @@ Provides comprehensive scoring logic with per-stop telemetry logging
 for A/B testing measurement and debugging.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Mapping
 from dataclasses import dataclass, asdict
 import logging
 import json
+import math
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,54 @@ from .normalization import (
     normalize_localness,
 )
 from .weights import WeightConfig, DEFAULT_WEIGHTS
+
+
+HEX_SCORE_DEFAULT_WEIGHTS: Dict[str, float] = {
+    "localness": 0.35,
+    "poi_density": 0.25,
+    "open_coverage": 0.20,
+    "reviews_sum": 0.20,
+}
+
+
+def _normalize(series: pd.Series) -> pd.Series:
+    if series.empty:
+        return series
+    min_val = series.min()
+    max_val = series.max()
+    if math.isclose(max_val, min_val):
+        return pd.Series(np.ones(len(series)), index=series.index)
+    return (series - min_val) / (max_val - min_val)
+
+
+def score_hexes(
+    hex_df: pd.DataFrame,
+    *,
+    weights: Optional[Mapping[str, float]] = None,
+) -> pd.DataFrame:
+    """Return ``hex_df`` with normalised metrics and composite score."""
+
+    if hex_df.empty:
+        return hex_df
+
+    data = hex_df.copy()
+    weight_map = {**HEX_SCORE_DEFAULT_WEIGHTS, **(dict(weights or {}))}
+
+    data["density_norm"] = _normalize(data["poi_density"].astype(float))
+    data["reviews_norm"] = _normalize(np.log1p(data["reviews_sum"].clip(lower=0.0)))
+    data["open_coverage_norm"] = data["open_coverage"].clip(lower=0.0, upper=1.0)
+    data["localness_norm"] = _normalize(data["localness"].astype(float))
+
+    score = (
+        weight_map["localness"] * data["localness_norm"]
+        + weight_map["poi_density"] * data["density_norm"]
+        + weight_map["open_coverage"] * data["open_coverage_norm"]
+        + weight_map["reviews_sum"] * data["reviews_norm"]
+    )
+
+    max_weight = sum(weight_map.values()) or 1.0
+    data["hex_score"] = score / max_weight
+    return data
 
 
 # Set up logging for telemetry

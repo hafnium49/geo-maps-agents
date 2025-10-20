@@ -138,6 +138,78 @@ class HexBin(BaseModel):
     value: float
 
 
+class HexCell(BaseModel):
+    """Hexagon metadata used for heatmap visualisations."""
+
+    hex_id: str = Field(..., alias="hexId")
+    resolution: int
+    ring: Optional[str] = None
+    center: LatLng
+
+    model_config = {"populate_by_name": True}
+
+
+class HexAggregate(BaseModel):
+    """Aggregated per-hex metrics shared with widgets and actions."""
+
+    hex_id: str = Field(..., alias="hexId")
+    resolution: int
+    ring: Optional[str] = None
+    center: LatLng
+    poi_count: int = Field(..., alias="poiCount")
+    poi_density: float = Field(..., alias="poiDensity")
+    reviews_sum: float = Field(..., alias="reviewsSum")
+    open_coverage: float = Field(..., alias="openCoverage")
+    localness: float
+    score: Optional[float] = None
+
+    model_config = {"populate_by_name": True}
+
+
+class RefinePlan(BaseModel):
+    """Structure describing refinement of coarse hexagons."""
+
+    base_hexes: List[HexAggregate] = Field(default_factory=list, alias="baseHexes")
+    refined_hexes: List[HexAggregate] = Field(default_factory=list, alias="refinedHexes")
+    refine_metric: str = Field("localness", alias="refineMetric")
+    top_pct: float = Field(10.0, alias="topPct")
+
+    model_config = {"populate_by_name": True}
+
+
+class HexBaseMapRequest(BaseModel):
+    anchor: LatLng
+    radius_m: int = Field(4000, ge=100, le=10000, alias="radiusM")
+    query: str = Field("points of interest")
+    city_profile: Optional[str] = Field(default=None, alias="cityProfile")
+
+    model_config = {"populate_by_name": True}
+
+
+class HexBaseMapResponse(BaseModel):
+    hexes: List[HexAggregate]
+    refine_plan: RefinePlan = Field(alias="refinePlan")
+
+    model_config = {"populate_by_name": True}
+
+
+class HexRefineMapRequest(BaseModel):
+    anchor: LatLng
+    radius_m: int = Field(4000, ge=100, le=10000, alias="radiusM")
+    query: str = Field("points of interest")
+    city_profile: Optional[str] = Field(default=None, alias="cityProfile")
+    top_pct: float = Field(10.0, ge=0, le=100, alias="topPct")
+    metric: str = Field("localness")
+
+    model_config = {"populate_by_name": True}
+
+
+class HexRefineMapResponse(BaseModel):
+    refine_plan: RefinePlan = Field(alias="refinePlan")
+
+    model_config = {"populate_by_name": True}
+
+
 class IsochroneRing(BaseModel):
     minutes: int
     polygon: List[List[float]]
@@ -192,7 +264,7 @@ class ItineraryOutput(BaseModel):
     day_plans: List[ItineraryDay]
     clusters: List[ClusterSummary]
     scored_places: List[PoiClusterPoint]
-    hexes: List[HexBin]
+    hexes: List[HexAggregate]
     rings: List[IsochroneRing]
     route_path: List[RoutePoint]
     route_stops: List[RouteStop]

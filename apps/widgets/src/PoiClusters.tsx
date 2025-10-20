@@ -47,13 +47,18 @@ export default function PoiClusters({ center, pois, googleMapsApiKey }: PoiClust
       data: pois.filter((poi) => poi.clusterLabel),
       getPosition: (d) => [d.lng, d.lat],
       getText: (d) => d.clusterLabel ?? '',
-      getColor: [32, 32, 32, 220],
+      getColor: [32, 32, 32, 230],
       sizeUnits: 'meters',
       sizeMaxPixels: 36,
       sizeMinPixels: 14,
       getSize: 60,
       getTextAnchor: 'middle',
       getAlignmentBaseline: 'bottom',
+      background: true,
+      getBackgroundColor: [255, 255, 255, 220],
+      getBorderColor: [200, 200, 200, 255],
+      getBorderWidth: 1,
+      padding: [6, 8],
     });
 
     return [scatter, labels];

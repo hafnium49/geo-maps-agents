@@ -19,10 +19,11 @@ from src.routing import (
     Location as RouteLocation,
 )
 from src.scoring import DEFAULT_WEIGHTS, PlaceScorer, WeightConfig, get_variant_by_name
+from src.scoring.scorer import score_hexes
+from src.spatial.h3_utils import aggregate_hex_features
 
 from ..schemas.models import (
     ClusterSummary,
-    HexBin,
     IsochroneRing,
     ItineraryDay,
     ItineraryOutput,
@@ -37,7 +38,7 @@ from ..schemas.models import (
 )
 from .places import SearchPlacesRequest, fetch_details_for_places, search_text
 from .routes import compute_matrix_cached
-from .spatial import cluster_hexes, dataframe_from_places, hex_dataframe_from_places
+from .spatial import cluster_hexes, dataframe_from_places, dataframe_to_hex_models
 
 
 @dataclass
@@ -347,7 +348,8 @@ async def score_and_sequence(request: OptimizeItineraryRequest) -> OptimizeItine
             )
         )
 
-    hex_df = hex_dataframe_from_places(places_df, request.config.h3_res)
+    hex_df = aggregate_hex_features(places_df, res=request.config.h3_res)
+    hex_df = score_hexes(hex_df)
     hex_df.attrs["h3_res"] = request.config.h3_res
     hex_df_clustered, clusters = cluster_hexes(hex_df, min_cluster_size=request.config.cluster_min_size)
     hex_df_clustered.attrs["h3_res"] = request.config.h3_res
@@ -487,7 +489,7 @@ async def score_and_sequence(request: OptimizeItineraryRequest) -> OptimizeItine
 
     day_plan = ItineraryDay(date_iso=start_time.date().isoformat(), stops=itinerary_stops)
 
-    hexes = [HexBin(id=row.hex, value=float(row.localness)) for row in hex_df_clustered.itertuples()]
+    hexes = dataframe_to_hex_models(hex_df_clustered)
     rings = _build_isochrone_rings(request.anchor.lat, request.anchor.lng, etas, places_df)
     route_path, route_stops = _build_route_path(request.anchor.lat, request.anchor.lng, result.stops, start_time)
     timeline = _build_timeline(result.stops, scored_lookup)

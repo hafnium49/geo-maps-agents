@@ -18,6 +18,8 @@ import pandas as pd
 import numpy as np
 import h3
 
+os.environ.setdefault("GOOGLE_MAPS_API_KEY", "test-key")
+
 
 # ==============================================================================
 # Test Data Paths

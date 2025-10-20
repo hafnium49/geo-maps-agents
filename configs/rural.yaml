@@ -7,8 +7,14 @@ description: "Low POI density, long distances, minimal clustering"
 # H3 Hexagon Resolution
 # Resolution 7: ~1.22km edge, ~5.16 km² area (regional scale)
 h3:
-  primary_resolution: 7
-  fallback_resolution: 6  # Very wide coverage
+  base_res_core: 7
+  base_res_belt: 6
+  refine_res: 10
+
+refine:
+  top_pct: 5
+  metric: reviews
+  core_radius_ratio: 0.5
 
 # HDBSCAN Clustering Parameters
 clustering:
@@ -22,6 +28,7 @@ clustering:
 search:
   default_radius_m: 20000    # 20km search radius (wide net)
   max_candidates: 80         # Fewer total POIs available
+  language: en
   
 # Routing Defaults
 routing:

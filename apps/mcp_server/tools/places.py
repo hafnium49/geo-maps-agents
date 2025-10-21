@@ -13,12 +13,17 @@ from src.tools import get_places_details_mask, get_places_search_mask
 from ..schemas.models import Place, SearchPlacesRequest
 
 PLACES_BASE = "https://places.googleapis.com/v1"
-GOOGLE_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
-if not GOOGLE_KEY:
-    raise RuntimeError(
-        "Missing GOOGLE_MAPS_API_KEY. Copy .env.sample to .env and set your key before running the MCP server."
-    )
+
+def _require_google_api_key() -> str:
+    """Fetch the Google Maps API key from the environment at call time."""
+
+    google_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+    if not google_key:
+        raise RuntimeError(
+            "Missing GOOGLE_MAPS_API_KEY. Copy .env.sample to .env and set your key before running the MCP server."
+        )
+    return google_key
 
 
 async def _http_post_json(url: str, payload: dict, headers: dict) -> dict:
@@ -66,7 +71,9 @@ def _base_place_from_payload(payload: dict) -> Place:
 async def search_text(request: SearchPlacesRequest) -> List[Place]:
     """Execute Places Text Search (New) with FieldMask enforcement."""
 
-    headers = {"X-Goog-Api-Key": GOOGLE_KEY}
+    google_key = _require_google_api_key()
+
+    headers = {"X-Goog-Api-Key": google_key}
     headers.update(get_places_search_mask())
 
     body = {
@@ -98,7 +105,9 @@ async def search_text(request: SearchPlacesRequest) -> List[Place]:
 async def place_details(place_id: str, *, language: str = "en") -> Place:
     """Fetch detailed place data with FieldMask using Places Details (New)."""
 
-    headers = {"X-Goog-Api-Key": GOOGLE_KEY}
+    google_key = _require_google_api_key()
+
+    headers = {"X-Goog-Api-Key": google_key}
     headers.update(get_places_details_mask())
 
     url = f"{PLACES_BASE}/places/{place_id}"

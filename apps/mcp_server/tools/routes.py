@@ -19,12 +19,16 @@ from src.routing import (
     Location as RouteLocation,
 )
 
-GOOGLE_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
-if not GOOGLE_KEY:
-    raise RuntimeError(
-        "Missing GOOGLE_MAPS_API_KEY. Copy .env.sample to .env and set your key before running the MCP server."
-    )
+def _require_google_api_key() -> str:
+    """Fetch the Google Maps API key from the environment at call time."""
+
+    google_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+    if not google_key:
+        raise RuntimeError(
+            "Missing GOOGLE_MAPS_API_KEY. Copy .env.sample to .env and set your key before running the MCP server."
+        )
+    return google_key
 
 TRAFFIC_TTL_SEC = 300
 STATIC_TTL_SEC = 3600
@@ -59,7 +63,9 @@ async def compute_matrix_cached(request: MatrixRequest) -> List[dict]:
     if key in cache:
         return cache[key]
 
-    matrix = await compute_route_matrix(request, api_key=GOOGLE_KEY)
+    google_key = _require_google_api_key()
+
+    matrix = await compute_route_matrix(request, api_key=google_key)
     cache[key] = matrix
     return matrix
 

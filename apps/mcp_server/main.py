@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from .schemas.models import (
     HexBaseMapRequest,
@@ -38,6 +40,26 @@ app.add_middleware(
 assets_dir = Path(__file__).parent / "assets"
 if assets_dir.exists():
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+_manifest_path = Path(__file__).resolve().parents[2] / "app.manifest.json"
+_manifest_data: Optional[Dict[str, Any]]
+if _manifest_path.exists():
+    with _manifest_path.open("r", encoding="utf-8") as manifest_file:
+        _manifest_data = json.load(manifest_file)
+else:
+    _manifest_data = None
+
+
+@app.get("/health")
+async def health_check() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/.well-known/app-manifest.json")
+async def app_manifest() -> JSONResponse:
+    if _manifest_data is None:
+        raise HTTPException(status_code=404, detail="App manifest not found.")
+    return JSONResponse(_manifest_data)
 
 
 def _load_profile(name: Optional[str]) -> Dict[str, Any]:

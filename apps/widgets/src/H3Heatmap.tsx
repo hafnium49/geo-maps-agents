@@ -1,4 +1,4 @@
-import { H3HexagonLayer } from '@deck.gl/layers';
+import { H3HexagonLayer } from '@deck.gl/geo-layers';
 import { useMemo } from 'react';
 import DeckGoogleMap from './common/DeckGoogleMap';
 

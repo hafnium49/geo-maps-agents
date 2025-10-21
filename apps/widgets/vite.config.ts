@@ -4,12 +4,17 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      child_process: path.resolve(__dirname, 'src/shims/child_process.ts'),
+    },
+  },
   build: {
     outDir: path.resolve(__dirname, '../mcp_server/assets'),
     emptyOutDir: true,
     sourcemap: true,
     lib: {
-      entry: path.resolve(__dirname, 'src/bootstrap.ts'),
+      entry: path.resolve(__dirname, 'src/bootstrap.tsx'),
       name: 'GeoMapsWidgets',
       formats: ['es'],
       fileName: () => 'widgets.js'
